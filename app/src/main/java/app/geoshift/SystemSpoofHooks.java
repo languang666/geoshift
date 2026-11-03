@@ -1,0 +1,139 @@
+package app.geoshift;
+
+import android.location.Location;
+import android.os.Build;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+import org.json.JSONObject;
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
+
+/**
+ * Runs in system_server. Rewrites what leaves the system for other processes, at the Binder proxy
+ * of each client callback, so ordinary apps need no LSPosed scope of their own:
+ *   location listeners / getCurrentLocation callbacks -> simulated location
+ *   GNSS status -> simulated satellites; NMEA sentences (which carry the real fix) -> dropped
+ *   cell info / cell location listeners -> simulated cells, or none
+ * Wi-Fi replies are handled by {@link WifiPrivacyHooks}; direct cell queries by the phone process.
+ */
+final class SystemSpoofHooks {
+    interface Controller {
+        /** Config while location simulation runs in LSPosed mode, else null. */
+        JSONObject location();
+        /** Config while cell data should be replaced, else null. */
+        JSONObject cells();
+        /** Config while satellites should be replaced, else null. */
+        JSONObject gnss();
+        void report(String stage, String detail);
+    }
+
+    private final Controller controller;
+    private final AtomicLong locationHits = new AtomicLong();
+    private final AtomicLong gnssHits = new AtomicLong();
+    private final AtomicLong nmeaDrops = new AtomicLong();
+    private final AtomicLong cellHits = new AtomicLong();
+    private final List<String> installed = new ArrayList<>();
+    private final List<String> missing = new ArrayList<>();
+
+    SystemSpoofHooks(Controller controller) { this.controller = controller; }
+
+    void install(ClassLoader loader) {
+        hook(loader, "android.location.ILocationListener$Stub$Proxy", "onLocationChanged", "定位回调", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.location();
+                if (c == null || h.args.length == 0 || !(h.args[0] instanceof List)) return;
+                List<?> original = (List<?>) h.args[0];
+                List<Location> replaced = new ArrayList<>(Math.max(1, original.size()));
+                for (Object item : original) replaced.add(fake(c, item));
+                if (replaced.isEmpty()) replaced.add(fake(c, null));
+                h.args[0] = replaced;
+                hit(locationHits);
+            }
+        });
+        hook(loader, "android.location.ILocationCallback$Stub$Proxy", "onLocation", "单次定位回调", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.location();
+                if (c == null || h.args.length == 0) return;
+                h.args[0] = fake(c, h.args[0]);
+                hit(locationHits);
+            }
+        });
+        if (Build.VERSION.SDK_INT >= 30) {
+            hook(loader, "android.location.IGnssStatusListener$Stub$Proxy", "onSvStatusChanged", "卫星状态", new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam h) {
+                    JSONObject c = controller.gnss();
+                    if (c == null || h.args.length == 0) return;
+                    h.args[0] = FakeEnvironment.gnss(c);
+                    hit(gnssHits);
+                }
+            });
+        }
+        hook(loader, "android.location.IGnssNmeaListener$Stub$Proxy", "onNmeaReceived", "NMEA", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                if (controller.location() == null) return;
+                h.setResult(null); // NMEA carries the real position; apps get none while simulating.
+                hit(nmeaDrops);
+            }
+        });
+        hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onCellInfoChanged", "基站列表回调", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.cells();
+                if (c == null || h.args.length == 0) return;
+                try {
+                    h.args[0] = FakeEnvironment.cellsOrEmpty(c);
+                    hit(cellHits);
+                } catch (Throwable e) { controller.report("error", "基站列表回调替换失败：" + e.getClass().getSimpleName()); }
+            }
+        });
+        hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onCellLocationChanged", "基站位置回调", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.cells();
+                if (c == null || h.args.length == 0) return;
+                try {
+                    h.args[0] = FakeEnvironment.cellIdentityOrEmpty(c);
+                    hit(cellHits);
+                } catch (Throwable e) { controller.report("error", "基站位置回调替换失败：" + e.getClass().getSimpleName()); }
+            }
+        });
+        controller.report(missing.isEmpty() ? "installed" : "error",
+                "已安装：" + String.join("、", installed) + (missing.isEmpty() ? "" : "；缺失：" + String.join("、", missing)));
+    }
+
+    private void hook(ClassLoader loader, String className, String method, String label, XC_MethodHook hook) {
+        Class<?> type = XposedHelpers.findClassIfExists(className, loader);
+        int count = 0;
+        if (type != null) {
+            for (Method m : type.getDeclaredMethods()) {
+                if (m.getName().equals(method)) { XposedBridge.hookMethod(m, hook); count++; }
+            }
+        }
+        (count > 0 ? installed : missing).add(label);
+    }
+
+    private static Location fake(JSONObject config, Object original) {
+        String provider = original instanceof Location ? ((Location) original).getProvider() : null;
+        if (provider == null || provider.isEmpty() || "passive".equals(provider)) provider = "fused";
+        try {
+            return FakeLocation.build(config, provider);
+        } catch (Exception e) {
+            // LSPosed logs hook exceptions and then runs the original call.
+            throw new IllegalStateException("Geoshift fake location", e);
+        }
+    }
+
+    private long lastReport;
+
+    private void hit(AtomicLong counter) {
+        counter.incrementAndGet();
+        long now = android.os.SystemClock.elapsedRealtime();
+        synchronized (this) {
+            if (now - lastReport < 3000) return;
+            lastReport = now;
+        }
+        controller.report("read", "应用回调替换：定位=" + locationHits.get() + " 卫星=" + gnssHits.get()
+                + " NMEA 拦截=" + nmeaDrops.get() + " 基站=" + cellHits.get());
+    }
+}
