@@ -28,4 +28,6 @@ public final class XposedHelpers {
         }
         throw new NoSuchFieldError(name);
     }
+    public static Object getObjectField(Object o,String name){try{return findField(o.getClass(),name).get(o);}catch(IllegalAccessException e){throw new IllegalStateException(e);}}
+    public static void setObjectField(Object o,String name,Object v){try{findField(o.getClass(),name).set(o,v);}catch(IllegalAccessException e){throw new IllegalStateException(e);}}
 }

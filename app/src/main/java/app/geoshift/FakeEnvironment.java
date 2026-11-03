@@ -106,6 +106,24 @@ final class FakeEnvironment {
         return XposedHelpers.newInstance(android.telephony.CellIdentityLte.class);
     }
 
+    /**
+     * Copy of a ServiceState with the real serving-cell identities removed, the same way Android
+     * does it for apps without location permission. With a cell preset, registrations that carried
+     * an identity get the preset one instead, so this matches what getAllCellInfo reports.
+     */
+    static Object serviceState(Object state, JSONObject config) throws Throwable {
+        Object copy = XposedHelpers.callMethod(state, "createLocationInfoSanitizedCopy", false);
+        if (!cellsConfigured(config)) return copy;
+        Object identity = cellIdentityOrEmpty(config);
+        List<?> real = (List<?>) XposedHelpers.getObjectField(state, "mNetworkRegistrationInfos");
+        List<?> safe = (List<?>) XposedHelpers.getObjectField(copy, "mNetworkRegistrationInfos");
+        for (int i = 0; i < Math.min(real.size(), safe.size()); i++) {
+            if (XposedHelpers.getObjectField(real.get(i), "mCellIdentity") != null)
+                XposedHelpers.setObjectField(safe.get(i), "mCellIdentity", identity);
+        }
+        return copy;
+    }
+
     private static void field(Object object, String name, Object value) throws Throwable {
         Field f = XposedHelpers.findField(object.getClass(), name);
         f.set(object, value);
@@ -150,15 +168,36 @@ final class FakeEnvironment {
 
     // ---- GNSS ---------------------------------------------------------------------------------
 
+    // Constellation, its carrier frequency in Hz, and the highest valid satellite id.
+    private static final int[] CONSTELLATIONS = {GnssStatus.CONSTELLATION_GPS, GnssStatus.CONSTELLATION_BEIDOU,
+            GnssStatus.CONSTELLATION_GALILEO, GnssStatus.CONSTELLATION_GLONASS};
+    private static final float[] CARRIER_HZ = {1575.42e6f, 1561.098e6f, 1575.42e6f, 1602.0e6f};
+    private static final int[] MAX_SVID = {32, 63, 36, 24};
+
+    /**
+     * Simulated sky. Satellites keep fixed ids but drift across the sky over minutes and their signal
+     * strength wobbles, as a real receiver would show; values follow the clock, so all apps agree.
+     */
     @androidx.annotation.RequiresApi(30)
     static GnssStatus gnss(JSONObject config) {
         JSONObject s = config.optJSONObject("settings");
         int count = Math.max(4, Math.min(32, s == null ? 12 : s.optInt("satelliteCount", 12)));
+        double minutes = SystemClock.elapsedRealtime() / 60000.0;
+        double seconds = minutes * 60;
         GnssStatus.Builder b = new GnssStatus.Builder();
+        int used = Math.min(count, Math.max(4, count * 3 / 4));
         for (int i = 0; i < count; i++) {
-            b.addSatellite(i % 2 == 0 ? GnssStatus.CONSTELLATION_GPS : GnssStatus.CONSTELLATION_BEIDOU,
-                    i + 1, 26 + i % 12, 15 + (i * 7) % 70, (i * 137) % 360,
-                    true, true, i < Math.min(12, count), true, 1575420000f, false, 0);
+            int k = i % CONSTELLATIONS.length;
+            int svid = 1 + (i / CONSTELLATIONS.length * 7 + k * 3) % MAX_SVID[k];
+            float carrier = CARRIER_HZ[k];
+            // GLONASS satellites each use their own channel, 0.5625 MHz apart.
+            if (CONSTELLATIONS[k] == GnssStatus.CONSTELLATION_GLONASS) carrier += (svid % 14 - 7) * 0.5625e6f;
+            double elevation = 15 + (i * 37) % 70 + 6 * Math.sin(minutes / 40.0 + i);
+            double azimuth = ((i * 137) % 360 + minutes * 0.5 * (i % 2 == 0 ? 1 : -1) + 360) % 360;
+            // Higher satellites are received more strongly.
+            double cn0 = 18 + elevation * 0.28 + 2.5 * FakeLocation.wave(seconds, i * 1.7);
+            b.addSatellite(CONSTELLATIONS[k], svid, (float) cn0, (float) elevation, (float) azimuth,
+                    true, true, i < used, true, carrier, false, 0);
         }
         return b.build();
     }

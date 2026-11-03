@@ -51,16 +51,18 @@ public final class SystemLocationChecks {
         for(String provider:new String[]{"gps","network","fused"}){
             Location fix=FakeLocation.build(config,provider);
             check(provider.equals(fix.getProvider()),"provider is preserved: "+provider);
-            check(fix.getLatitude()==39.9042&&fix.getLongitude()==116.4074,"WGS-84 fix: "+provider);
+            check(Geo.distance(fix.getLatitude(),fix.getLongitude(),39.9042,116.4074)<("network".equals(provider)?9:3.5),"WGS-84 fix stays near target: "+provider);
             check(!fix.isMock()&&!fix.isFromMockProvider(),"framework flag: "+provider);
             check(fix.getElapsedRealtimeNanos()==123456000000L&&fix.getTime()>1_000_000,"complete timestamps: "+provider);
             LocationResult packet=(LocationResult)LocationPacket.wrap(fix);
             check(packet.getLastLocation()==fix,"typed framework packet: "+provider);
         }
         Location fix=FakeLocation.build(config,"fused");
-        check(fix.getAccuracy()==5&&fix.getAltitude()==22&&fix.getSpeed()==6&&fix.getBearing()==45,"fix metadata");
+        check(fix.getAccuracy()>=4&&fix.getAccuracy()<=6&&Math.abs(fix.getAltitude()-22)<=1.5&&fix.getSpeed()==6&&fix.getBearing()==45,"fix metadata");
+        check(FakeLocation.build(config,"network").getAccuracy()>=18,"network fix is coarse");
+        check(FakeLocation.build(config,"network").getAltitude()==0&&FakeLocation.build(config,"network").getSpeed()==0,"network fix has no altitude or motion");
         check(fix.getExtras()==null,"no custom mock bundle");
-        config.getJSONObject("runtime").put("paused",true);check(FakeLocation.build(config,"gps").getSpeed()==0,"paused route fix");
+        config.getJSONObject("runtime").put("paused",true);check(FakeLocation.build(config,"gps").getSpeed()<0.3,"paused route fix is nearly still");
         Build.VERSION.SDK_INT=26;check(!FakeLocation.build(config,"network").isMock(),"legacy constructor keeps flag clear");
         System.out.println("PASS: "+checks+" system delivery/fix checks (API fixtures; not live system_server).");
     }

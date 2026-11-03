@@ -71,8 +71,7 @@ final class SystemHook {
     static void install(ClassLoader loader) {
         hookCommands(loader);
         try { new WifiPrivacyHooks(new WifiPrivacyHooks.Controller() {
-            @Override public JSONObject activeForCaller() {
-                int uid = Binder.getCallingUid();
+            @Override public JSONObject activeFor(int uid) {
                 if (uid < 10000 || uid == ownUid()) return null;
                 JSONObject c = lsposedConfig();
                 if (c == null) return null;

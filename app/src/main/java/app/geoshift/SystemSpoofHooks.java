@@ -16,7 +16,7 @@ import de.robv.android.xposed.XposedHelpers;
  * of each client callback, so ordinary apps need no LSPosed scope of their own:
  *   location listeners / getCurrentLocation callbacks -> simulated location
  *   GNSS status -> simulated satellites; NMEA sentences (which carry the real fix) -> dropped
- *   cell info / cell location listeners -> simulated cells, or none
+ *   cell info / cell location / service state listeners -> simulated cells, or none
  * Wi-Fi replies are handled by {@link WifiPrivacyHooks}; direct cell queries by the phone process.
  */
 final class SystemSpoofHooks {
@@ -96,6 +96,35 @@ final class SystemSpoofHooks {
                     h.args[0] = FakeEnvironment.cellIdentityOrEmpty(c);
                     hit(cellHits);
                 } catch (Throwable e) { controller.report("error", "基站位置回调替换失败：" + e.getClass().getSimpleName()); }
+            }
+        });
+        hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onServiceStateChanged", "网络状态回调", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.cells();
+                if (c == null || h.args.length == 0 || h.args[0] == null) return;
+                try {
+                    h.args[0] = FakeEnvironment.serviceState(h.args[0], c);
+                    hit(cellHits);
+                } catch (Throwable e) { controller.report("error", "网络状态回调替换失败：" + e.getClass().getSimpleName()); }
+            }
+        });
+        hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onBarringInfoChanged", "接入限制回调", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                if (controller.cells() == null || h.args.length == 0 || h.args[0] == null) return;
+                try {
+                    h.args[0] = XposedHelpers.callMethod(h.args[0], "createLocationInfoSanitizedCopy");
+                    hit(cellHits);
+                } catch (Throwable e) { controller.report("error", "接入限制回调替换失败：" + e.getClass().getSimpleName()); }
+            }
+        });
+        hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onRegistrationFailed", "注册失败回调", new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.cells();
+                if (c == null || h.args.length == 0) return;
+                try {
+                    h.args[0] = FakeEnvironment.cellIdentityOrEmpty(c);
+                    hit(cellHits);
+                } catch (Throwable e) { controller.report("error", "注册失败回调替换失败：" + e.getClass().getSimpleName()); }
             }
         });
         controller.report(missing.isEmpty() ? "installed" : "error",

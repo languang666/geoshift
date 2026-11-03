@@ -14,5 +14,5 @@ public class XC_MethodHook {
         public void setResult(Object value){result=value;error=null;early=true;}
         public boolean hasThrowable(){return error!=null;}
     }
-    public final class Unhook {}
+    public final class Unhook { public void unhook(){ XposedBridge.remove(XC_MethodHook.this); } }
 }

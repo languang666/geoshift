@@ -51,7 +51,9 @@ public class ProbeActivity extends Activity {
 
     private static String loc(Location l) {
         if (l == null) return "null";
-        return String.format(java.util.Locale.US, "%.6f,%.6f provider=%s mock=%s", l.getLatitude(), l.getLongitude(), l.getProvider(), l.isMock());
+        return String.format(java.util.Locale.US, "%.6f,%.6f provider=%s mock=%s acc=%.1f alt=%s spd=%s brg=%s", l.getLatitude(), l.getLongitude(), l.getProvider(), l.isMock(),
+                l.getAccuracy(), l.hasAltitude() ? String.format(java.util.Locale.US, "%.1f", l.getAltitude()) : "-",
+                l.hasSpeed() ? String.format(java.util.Locale.US, "%.2f", l.getSpeed()) : "-", l.hasBearing() ? String.valueOf(l.getBearing()) : "-");
     }
 
     private void put(String key, String value) {
@@ -115,12 +117,33 @@ public class ProbeActivity extends Activity {
             });
         } catch (Throwable e) { put("8.cell.requestUpdate", "ERR " + e); }
 
+        put("7.wifi.networkCallback", "no callback");
+        try {
+            android.net.ConnectivityManager cm = getSystemService(android.net.ConnectivityManager.class);
+            cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI).build(),
+                    new android.net.ConnectivityManager.NetworkCallback(android.net.ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO) {
+                        @Override public void onCapabilitiesChanged(android.net.Network n, android.net.NetworkCapabilities nc) {
+                            Object info = nc.getTransportInfo();
+                            if (info instanceof WifiInfo) put("7.wifi.networkCallback", "ssid=" + ((WifiInfo) info).getSSID() + " bssid=" + ((WifiInfo) info).getBSSID());
+                        }
+                    });
+        } catch (Throwable e) { put("7.wifi.networkCallback", "ERR " + e); }
         handler.postDelayed(() -> finish(lm, wifi, tm), 15000);
         view.setText("采集中，15 秒…");
     }
 
-    private class CellCallback extends TelephonyCallback implements TelephonyCallback.CellInfoListener {
+    private class CellCallback extends TelephonyCallback implements TelephonyCallback.CellInfoListener, TelephonyCallback.ServiceStateListener {
         @Override public void onCellInfoChanged(List<CellInfo> cells) { put("8.cell.callback", cells(cells)); }
+        @Override public void onServiceStateChanged(android.telephony.ServiceState state) { put("8.cell.serviceStateCallback", serviceCells(state)); }
+    }
+
+    private static String serviceCells(android.telephony.ServiceState state) {
+        if (state == null) return "null";
+        StringBuilder b = new StringBuilder("op=" + state.getOperatorNumeric());
+        for (android.telephony.NetworkRegistrationInfo n : state.getNetworkRegistrationInfoList()) {
+            if (n.getCellIdentity() != null) b.append(" | ").append(n.getCellIdentity().toString().replaceAll("\\s+", " "));
+        }
+        return b.length() > 400 ? b.substring(0, 400) : b.toString();
     }
 
     private static String cells(List<CellInfo> cells) {
@@ -146,6 +169,7 @@ public class ProbeActivity extends Activity {
         } catch (Throwable e) { put("7.wifi.connection", "ERR " + e); }
         try { put("8.cell.getAllCellInfo", cells(tm.getAllCellInfo())); } catch (Throwable e) { put("8.cell.getAllCellInfo", "ERR " + e); }
         try { put("8.cell.getCellLocation", String.valueOf(tm.getCellLocation())); } catch (Throwable e) { put("8.cell.getCellLocation", "ERR " + e); }
+        try { put("8.cell.getServiceState", serviceCells(tm.getServiceState())); } catch (Throwable e) { put("8.cell.getServiceState", "ERR " + e); }
         for (String p : new String[]{"gps", "network", "fused"}) {
             try { put("9.lastAfter." + p, loc(lm.getLastKnownLocation(p))); } catch (Throwable e) { put("9.lastAfter." + p, "ERR " + e); }
         }

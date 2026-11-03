@@ -190,13 +190,18 @@ public final class PortalHook implements IXposedHookLoadPackage {
                         if (List.class.isAssignableFrom(result))
                             h.setResult("getAllCellInfo".equals(name) ? FakeEnvironment.cellsOrEmpty(c) : new ArrayList<>());
                         else if (result == Bundle.class) h.setResult(new Bundle());
+                        else if ("android.telephony.ServiceState".equals(result.getName())) {
+                            if (h.getResult() == null) return;
+                            h.setResult(FakeEnvironment.serviceState(h.getResult(), c));
+                        }
                         else if ("getCellLocation".equals(name)) h.setResult(FakeEnvironment.cellIdentityOrEmpty(c));
                         else return;
                         report("cell", null, "read", "电话服务已替换基站查询：" + name);
                     } catch (Throwable e) { report("cell", e, "error", "电话服务基站查询替换失败"); }
                 }
             };
-            for (String name : new String[]{"getAllCellInfo", "getCellLocation", "getNeighboringCellInfo"})
+            for (String name : new String[]{"getAllCellInfo", "getCellLocation", "getNeighboringCellInfo",
+                    "getServiceStateForSlot", "getServiceStateForSubscriber"})
                 hooks += XposedBridge.hookAllMethods(type, name, query).size();
             XC_MethodHook update = new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam h) {
