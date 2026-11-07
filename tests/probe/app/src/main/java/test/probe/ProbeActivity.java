@@ -36,7 +36,8 @@ public class ProbeActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Executor main = handler::post;
     private TextView view;
-    private int gnssCallbacks, nmeaCount;
+    private int gnssCallbacks, nmeaCount, measurementCount, navCount;
+    private String measurementSample = "";
     private String gnssSummary = "无回调", nmeaSample = "";
 
     @Override protected void onCreate(Bundle b) {
@@ -102,6 +103,17 @@ public class ProbeActivity extends Activity {
                 if (msg.contains("GGA") || nmeaSample.isEmpty()) nmeaSample = msg.trim();
             });
         } catch (Throwable e) { put("5.gnss", "ERR " + e); }
+        try {
+            lm.registerGnssMeasurementsCallback(main, new android.location.GnssMeasurementsEvent.Callback() {
+                @Override public void onGnssMeasurementsReceived(android.location.GnssMeasurementsEvent e) {
+                    measurementCount++;
+                    measurementSample = "n=" + e.getMeasurements().size() + " clockBias=" + e.getClock().getFullBiasNanos();
+                }
+            });
+            lm.registerGnssNavigationMessageCallback(main, new android.location.GnssNavigationMessage.Callback() {
+                @Override public void onGnssNavigationMessageReceived(android.location.GnssNavigationMessage m) { navCount++; }
+            });
+        } catch (Throwable e) { put("5.gnssRaw", "ERR " + e); }
 
         WifiManager wifi = getSystemService(WifiManager.class);
         try { wifi.startScan(); } catch (Throwable ignored) {}
@@ -157,6 +169,7 @@ public class ProbeActivity extends Activity {
     private void finish(LocationManager lm, WifiManager wifi, TelephonyManager tm) {
         put("5.gnss", "callbacks=" + gnssCallbacks + " " + gnssSummary);
         put("6.nmea", "count=" + nmeaCount + " sample=" + nmeaSample);
+        if (!results.containsKey("5.gnssRaw")) put("5.gnssRaw", "measurements=" + measurementCount + " " + measurementSample + " navMessages=" + navCount);
         try {
             List<ScanResult> scans = wifi.getScanResults();
             StringBuilder b = new StringBuilder("count=" + scans.size());

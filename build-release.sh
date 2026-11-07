@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
 BT="$ANDROID_HOME/build-tools/35.0.0"
-KEYS="${PORTAL_KEYS:-$HOME/projects/portal-rebuild/private-signing}"
+KEYS="${PORTAL_KEYS:-$HOME/.geoshift-signing}"
 VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
 OUT="Geoshift-$VERSION.apk"
 

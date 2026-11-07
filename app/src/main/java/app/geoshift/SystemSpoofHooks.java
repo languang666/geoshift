@@ -16,6 +16,8 @@ import de.robv.android.xposed.XposedHelpers;
  * of each client callback, so ordinary apps need no LSPosed scope of their own:
  *   location listeners / getCurrentLocation callbacks -> simulated location
  *   GNSS status -> simulated satellites; NMEA sentences (which carry the real fix) -> dropped
+ *   raw GNSS measurements / navigation messages (enough to solve the real fix) -> dropped
+ *   Xiaomi HyperOS blurred-location service -> simulated location / simulated cells, or none
  *   cell info / cell location / service state listeners -> simulated cells, or none
  * Wi-Fi replies are handled by {@link WifiPrivacyHooks}; direct cell queries by the phone process.
  */
@@ -34,6 +36,8 @@ final class SystemSpoofHooks {
     private final AtomicLong locationHits = new AtomicLong();
     private final AtomicLong gnssHits = new AtomicLong();
     private final AtomicLong nmeaDrops = new AtomicLong();
+    private final AtomicLong rawDrops = new AtomicLong();
+    private final AtomicLong miuiHits = new AtomicLong();
     private final AtomicLong cellHits = new AtomicLong();
     private final List<String> installed = new ArrayList<>();
     private final List<String> missing = new ArrayList<>();
@@ -78,6 +82,18 @@ final class SystemSpoofHooks {
                 hit(nmeaDrops);
             }
         });
+        // Raw pseudoranges and navigation data let an app solve the real position itself and would
+        // contradict the simulated satellites, so apps receive none while simulating.
+        XC_MethodHook dropRaw = new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                if (controller.location() == null) return;
+                h.setResult(null);
+                hit(rawDrops);
+            }
+        };
+        hook(loader, "android.location.IGnssMeasurementsListener$Stub$Proxy", "onGnssMeasurementsReceived", "GNSS 原始测量", dropRaw);
+        hook(loader, "android.location.IGnssNavigationMessageListener$Stub$Proxy", "onGnssNavigationMessageReceived", "GNSS 导航电文", dropRaw);
+        hookMiuiBlur(loader);
         hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onCellInfoChanged", "基站列表回调", new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam h) {
                 JSONObject c = controller.cells();
@@ -131,15 +147,109 @@ final class SystemSpoofHooks {
                 "已安装：" + String.join("、", installed) + (missing.isEmpty() ? "" : "；缺失：" + String.join("、", missing)));
     }
 
+    /**
+     * Xiaomi HyperOS / MIUI keeps its own location service in system_server for the "approximate
+     * location" feature; it answers some apps from the real fix and real towers on its own path.
+     * Only present on Xiaomi ROMs, so its absence is not reported as missing.
+     */
+    private void hookMiuiBlur(ClassLoader loader) {
+        Class<?> type = null;
+        for (String name : new String[]{"com.android.server.location.MiuiBlurLocationManagerImpl",
+                "com.android.server.location.MiuiBlurLocationManager"}) {
+            type = XposedHelpers.findClassIfExists(name, loader);
+            if (type != null) break;
+        }
+        if (type == null) return;
+        hookMethods(type, "getBlurryLocation", "小米模糊定位", false, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.location();
+                if (c == null) return;
+                h.setResult(fakeLocationLike(c, h.getResult(), ((Method) h.method).getReturnType()));
+                hit(miuiHits);
+            }
+        });
+        hookMethods(type, "getBlurryCellInfos", "小米模糊基站列表", false, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.cells();
+                if (c == null) return;
+                Object value;
+                try { value = FakeEnvironment.cellsOrEmpty(c); } catch (Throwable e) { value = new ArrayList<>(); }
+                h.setResult(fit(value, ((Method) h.method).getReturnType()));
+                hit(miuiHits);
+            }
+        });
+        hookMethods(type, "getBlurryCellLocation", "小米模糊基站位置", false, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam h) {
+                JSONObject c = controller.cells();
+                if (c == null) return;
+                Object value;
+                try { value = FakeEnvironment.cellIdentityOrEmpty(c); } catch (Throwable e) { value = null; }
+                h.setResult(fit(value, ((Method) h.method).getReturnType()));
+                hit(miuiHits);
+            }
+        });
+        hookMethods(type, "handleGpsLocationChangedLocked", "小米 GPS 刷新", false, new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                if (controller.location() == null) return;
+                h.setResult(defaultValue(((Method) h.method).getReturnType()));
+                hit(miuiHits);
+            }
+        });
+    }
+
+    /** Replaces a Location, LocationResult or List of locations with simulated ones of the same shape. */
+    private static Object fakeLocationLike(JSONObject c, Object result, Class<?> returnType) {
+        if (result instanceof Location) return fake(c, result);
+        if (result instanceof List) {
+            List<Location> replaced = new ArrayList<>();
+            for (Object item : (List<?>) result) replaced.add(fake(c, item));
+            if (replaced.isEmpty()) replaced.add(fake(c, null));
+            return replaced;
+        }
+        if (result != null) {
+            try {
+                List<?> original = (List<?>) XposedHelpers.getObjectField(result, "mLocations");
+                List<Location> replaced = new ArrayList<>();
+                for (Object item : original) replaced.add(fake(c, item));
+                if (replaced.isEmpty()) replaced.add(fake(c, null));
+                XposedHelpers.setObjectField(result, "mLocations", replaced);
+            } catch (Throwable ignored) {}
+            return result;
+        }
+        return Location.class.isAssignableFrom(returnType) ? fake(c, null) : null;
+    }
+
+    /** value if the method can return it, else an empty list or null of the declared type. */
+    private static Object fit(Object value, Class<?> returnType) {
+        if (value != null && returnType.isInstance(value)) return value;
+        if (returnType.isAssignableFrom(ArrayList.class)) return new ArrayList<>();
+        return defaultValue(returnType);
+    }
+
+    private static Object defaultValue(Class<?> type) {
+        if (type == boolean.class) return false;
+        if (type == int.class) return 0;
+        if (type == long.class) return 0L;
+        if (type == float.class) return 0f;
+        if (type == double.class) return 0d;
+        return null;
+    }
+
     private void hook(ClassLoader loader, String className, String method, String label, XC_MethodHook hook) {
-        Class<?> type = XposedHelpers.findClassIfExists(className, loader);
+        hookMethods(XposedHelpers.findClassIfExists(className, loader), method, label, true, hook);
+    }
+
+    private void hookMethods(Class<?> type, String method, String label, boolean required, XC_MethodHook hook) {
         int count = 0;
         if (type != null) {
             for (Method m : type.getDeclaredMethods()) {
-                if (m.getName().equals(method)) { XposedBridge.hookMethod(m, hook); count++; }
+                if (m.getName().equals(method)) {
+                    try { XposedBridge.hookMethod(m, hook); count++; } catch (Throwable ignored) {}
+                }
             }
         }
-        (count > 0 ? installed : missing).add(label);
+        if (count > 0) installed.add(label);
+        else if (required) missing.add(label);
     }
 
     private static Location fake(JSONObject config, Object original) {
@@ -163,6 +273,7 @@ final class SystemSpoofHooks {
             lastReport = now;
         }
         controller.report("read", "应用回调替换：定位=" + locationHits.get() + " 卫星=" + gnssHits.get()
-                + " NMEA 拦截=" + nmeaDrops.get() + " 基站=" + cellHits.get());
+                + " NMEA 拦截=" + nmeaDrops.get() + " 原始测量拦截=" + rawDrops.get() + " 基站=" + cellHits.get()
+                + (miuiHits.get() > 0 ? " 小米模糊定位=" + miuiHits.get() : ""));
     }
 }
