@@ -26,10 +26,6 @@ public final class Geo {
                 Math.sqrt(Math.max(0, 1 - Math.min(1, h))));
     }
 
-    public static double haversine(double lat1, double lon1, double lat2, double lon2) {
-        return distance(lat1, lon1, lat2, lon2);
-    }
-
     public static double bearing(double lat1, double lon1, double lat2, double lon2) {
         check(lat1, lon1);
         check(lat2, lon2);

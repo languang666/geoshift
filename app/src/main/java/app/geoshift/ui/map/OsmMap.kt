@@ -28,8 +28,6 @@ import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.tileprovider.tilesource.XYTileSource
-import org.osmdroid.util.MapTileIndex
 import org.osmdroid.api.IGeoPoint
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
@@ -46,30 +44,6 @@ class MapCamera(var target: LatLon, var zoom: Double = 15.0, var handledToken: L
 private const val INDIGO = 0xFF5266E8.toInt()
 private const val PIN = 0xFFE5484D.toInt()
 
-private val AMAP_TILES = object : XYTileSource(
-    "Geoshift-Amap-Road-GCJ02", 3, 19, 256, ".png",
-    arrayOf("https://webrd01.is.autonavi.com/appmaptile", "https://webrd02.is.autonavi.com/appmaptile"),
-    "© 高德地图",
-) {
-    override fun getTileURLString(index: Long): String =
-        "$baseUrl?lang=zh_cn&size=1&scale=1&style=7&x=${MapTileIndex.getX(index)}&y=${MapTileIndex.getY(index)}&z=${MapTileIndex.getZoom(index)}"
-}
-
-private val SATELLITE_TILES = object : XYTileSource(
-    "Geoshift-Esri-WorldImagery", 3, 19, 256, ".jpg",
-    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
-    "Sources: Esri, Maxar, Earthstar Geographics, GIS User Community",
-) {
-    override fun getTileURLString(index: Long): String =
-        "$baseUrl${MapTileIndex.getZoom(index)}/${MapTileIndex.getY(index)}/${MapTileIndex.getX(index)}"
-}
-
-private fun tileSource(source: MapSource) = when (source) {
-    MapSource.AMAP -> AMAP_TILES
-    MapSource.SATELLITE -> SATELLITE_TILES
-    else -> TileSourceFactory.MAPNIK
-}
-
 private fun MapSource.display(point: LatLon): GeoPoint =
     toDisplay(point.lat, point.lon).let { GeoPoint(it[0], it[1]) }
 
@@ -77,6 +51,7 @@ private fun MapSource.wgs(point: IGeoPoint): LatLon =
     toWgs(point.latitude, point.longitude).let { LatLon(it[0], it[1]) }
 
 /** Shared map view; only display coordinates change when switching tile sources. */
+/** The plain OpenStreetMap layer; the other layers are drawn by MapLibre (VectorMap). */
 @Composable
 fun OsmMap(
     modifier: Modifier,
@@ -106,7 +81,7 @@ fun OsmMap(
     val mapView = remember {
         MapView(context).apply {
             setUseDataConnection(online)
-            setTileSource(tileSource(source))
+            setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             minZoomLevel = 3.0
@@ -193,13 +168,13 @@ fun OsmMap(
             mv.controller.stopAnimation(false)
             val camera = renderedSource[0].wgs(mv.mapCenter)
             val zoom = mv.zoomLevelDouble
-            mv.setTileSource(tileSource(source))
+            mv.setTileSource(TileSourceFactory.MAPNIK)
             mv.controller.setZoom(zoom)
             mv.controller.setCenter(source.display(camera))
             renderedSource[0] = source
             switching[0] = false
         }
-        mv.overlayManager.tilesOverlay.setColorFilter(if (dark && source != MapSource.SATELLITE) DARK_TILES else null)
+        mv.overlayManager.tilesOverlay.setColorFilter(if (dark) DARK_TILES else null)
         mv.overlayManager.tilesOverlay.setLoadingBackgroundColor(if (dark) 0xFF1B1E27.toInt() else 0xFFE9ECF2.toInt())
         virtualMarker.position = source.display(virtual)
         virtualMarker.icon = if (simulating) activeIcon else idleIcon
