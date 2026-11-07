@@ -11,6 +11,7 @@ import android.provider.Settings
 import app.geoshift.DeviceScanner
 import app.geoshift.Geo
 import app.geoshift.MapNetwork
+import app.geoshift.MapSource
 import app.geoshift.OverlayService
 import app.geoshift.PortalStore
 import app.geoshift.SimulationService
@@ -396,20 +397,13 @@ class PortalActions(context: Context) {
         }
         if (patch.has("mapSource")) {
             val source = patch.getString("mapSource")
-            if (source !in listOf("osm", "amap", "satellite")) fail("地图类型无效。")
+            if (source !in MapSource.entries.map { it.key }) fail("地图类型无效。")
             next.put("mapSource", source)
         }
         if (patch.has("mapKey")) {
             val n = patch.getString("mapKey").trim()
             if (n.isNotEmpty() && !n.matches(Regex("[A-Za-z0-9]{16,128}"))) fail("地图 Key 格式无效。")
             next.put("mapKey", n)
-        }
-        if (patch.has("amapAndroidKey")) {
-            val n = patch.getString("amapAndroidKey").trim()
-            if (n.isNotEmpty() && !n.matches(Regex("[A-Za-z0-9]{16,128}"))) fail("Android Key 格式无效。")
-            if (n.isNotEmpty() && !patch.optBoolean("amapSdkAccepted")) fail("请先阅读并同意高德地图 SDK 隐私说明。")
-            next.put("amapAndroidKey", n)
-            next.put("amapSdkAccepted", n.isNotEmpty() && patch.optBoolean("amapSdkAccepted"))
         }
         if (next.has("allowedPackages") || next.has("backend")) {
             clearLocationReports()
@@ -436,13 +430,29 @@ class PortalActions(context: Context) {
 
     data class Place(val name: String, val address: String, val position: LatLon)
 
-    fun search(query: String): List<Place> =
-        MapNetwork.search(c, query).optJSONArray("results").objects().map {
+    /** AMap with a Web service key, otherwise keyless OpenStreetMap search near [near]. */
+    fun search(query: String, near: LatLon? = null): List<Place> {
+        if (PortalStore.mapKey(c).isEmpty()) {
+            requireOnline()
+            return OpenGeocoder.search(query, near)
+        }
+        return MapNetwork.search(c, query).optJSONArray("results").objects().map {
             Place(it.optString("name"), it.optString("address"), LatLon.from(it))
         }
+    }
 
-    fun reverseGeocode(p: LatLon): String =
-        if (PortalStore.mapKey(c).isEmpty()) "" else MapNetwork.reverse(c, p.lat, p.lon).optString("address")
+    fun reverseGeocode(p: LatLon): String {
+        if (PortalStore.mapKey(c).isEmpty()) {
+            requireOnline()
+            // Address text is optional; a busy public server should not raise an error on every tap.
+            return runCatching { OpenGeocoder.reverse(p) }.getOrDefault("")
+        }
+        return MapNetwork.reverse(c, p.lat, p.lon).optString("address")
+    }
+
+    private fun requireOnline() {
+        if (!PortalStore.settings(c).optBoolean("privacyAccepted")) fail("请先阅读并同意隐私说明，再使用在线地图或搜索。")
+    }
 
     fun checkMapKey(): String {
         MapNetwork.reverse(c, 39.9042, 116.4074)

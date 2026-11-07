@@ -12,8 +12,10 @@ android {
         applicationId = "app.geoshift"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "2.4.4"
+        versionCode = 21
+        versionName = "2.5.0"
+        // Phones are ARM; x86_64 is kept for the emulator. Native map code is per ABI.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
     buildTypes {
@@ -58,6 +60,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
-    implementation("com.amap.api:3dmap-location-search:11.3.100_loc11.3.101_sea9.8.1")
+    implementation("org.maplibre.gl:android-sdk:12.3.1")
     compileOnly(files("libs/xposed-api-82.jar"))
 }

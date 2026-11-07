@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.geoshift.MapSource
 import app.geoshift.data.PortalState
 import app.geoshift.data.SpeedMode
 import app.geoshift.ui.PortalViewModel
@@ -88,7 +89,6 @@ fun SettingsScreen(
     var number by remember { mutableStateOf<NumberSetting?>(null) }
     var choice by remember { mutableStateOf<String?>(null) }
     var mapKey by remember { mutableStateOf(false) }
-    var androidMapKey by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var text by remember { mutableStateOf<Pair<String, String>?>(null) }
 
@@ -152,13 +152,10 @@ fun SettingsScreen(
 
         SectionTitle("地图与外观")
         SettingGroup {
-            SettingRow("地图图层", "默认地图与高德地图可随时切换，也可使用地图右侧图层按钮", icon = Icons.Rounded.Place,
+            SettingRow("地图图层", "无需任何 Key，可随时切换，也可使用地图右侧图层按钮", icon = Icons.Rounded.Place,
                 value = st.mapSource.label, onClick = { choice = "mapSource" })
             Divider()
-            SettingRow("高德高清地图 Android Key", "开启官方矢量地图 · 内含申请教程、包名和 SHA1", icon = Icons.Rounded.Key,
-                value = if (st.amapAndroidKeyConfigured) "已设置" else "未设置", onClick = { androidMapKey = true })
-            Divider()
-            SettingRow("地点搜索 Web 服务 Key", "用于搜索与详细地址 · 内含申请教程和验证入口", icon = Icons.Rounded.Key,
+            SettingRow("高德 Web 服务 Key（可选）", "不填也能搜索、显示地址和规划道路；填写后改用高德数据，国内小店和新地点更全", icon = Icons.Rounded.Key,
                 value = if (st.mapKeyConfigured) "已设置" else "未设置", onClick = { mapKey = true })
             Divider()
             SettingRow("外观", null, icon = Icons.Rounded.Palette,
@@ -215,7 +212,7 @@ fun SettingsScreen(
         }
     }
     when (choice) {
-        "mapSource" -> ChoiceDialog("地图图层", listOf("osm" to "全球地图 · OpenStreetMap（无需 Key）", "satellite" to "全球卫星影像 · Esri", "amap" to "高德地图 · 基础 / 高清"), st.mapSource.key,
+        "mapSource" -> ChoiceDialog("地图图层", MapSource.entries.map { it.key to it.menuLabel }, st.mapSource.key,
             onDismiss = { choice = null }) { save("mapSource", it, "地图已切换") }
         "backend" -> ChoiceDialog("模拟类型", listOf("android_mock" to "标准 Android 模拟位置", "lsposed" to "LSPosed 系统定位"), st.backend,
             onDismiss = { choice = null }) { save("backend", it, "已切换模拟类型") }
@@ -225,19 +222,9 @@ fun SettingsScreen(
             onDismiss = { choice = null }) { save("theme", it, null) }
     }
     if (mapKey) {
-        MapKeyDialog(androidKey = false, configured = st.mapKeyConfigured, onDismiss = { mapKey = false }, onMessage = vm::toast,
+        MapKeyDialog(configured = st.mapKeyConfigured, onDismiss = { mapKey = false }, onMessage = vm::toast,
             onTest = { vm.run<String>(onDone = vm::toast) { checkMapKey() } },
-            onSave = { key, _ -> save("mapKey", key, if (key.isEmpty()) "已清除搜索 Key" else "搜索 Key 已保存") })
-    }
-    if (androidMapKey) {
-        MapKeyDialog(androidKey = true, configured = st.amapAndroidKeyConfigured, onDismiss = { androidMapKey = false }, onMessage = vm::toast,
-            onSave = { key, accepted ->
-                vm.run(if (key.isEmpty()) "已清除 Android Key，将使用基础地图" else "Android Key 已保存，正在加载高清地图") {
-                    saveSettings(JSONObject().put("amapAndroidKey", key).put("amapSdkAccepted", accepted).apply {
-                        if (key.isNotEmpty()) put("mapSource", "amap")
-                    })
-                }
-            })
+            onSave = { key -> save("mapKey", key, if (key.isEmpty()) "已清除高德 Key，改用 OpenStreetMap 数据" else "高德 Key 已保存") })
     }
     when (confirm) {
         "logs" -> ConfirmDialog("清除诊断日志", "确定清空所有诊断日志吗？", confirm = "清除", onDismiss = { confirm = null }) {
@@ -299,17 +286,17 @@ const val HELP = """1. 首次使用：同意使用须知，授予精确位置权
 const val PRIVACY = """我们重视您的隐私。
 
 · 位置、路线、预设、环境记录、设置和日志全部保存在本机应用私有存储，不会上传。
-· 地图瓦片按您的选择来自 OpenStreetMap、高德地图或 Esri World Imagery，对应服务器可以看到您查看的地图区域。
-· 地点搜索和地址显示仅在您填写高德 Web 服务 Key 后使用 restapi.amap.com，会发送搜索关键词或坐标以及您的 Key。
-· 启用高清地图时使用高德地图 SDK（北京高德图强科技有限公司），处理设备与系统信息、应用信息、网络信息及所查看地图区域，用于地图展示和鉴权。不启用 SDK 自动定位，首次启用前单独展示说明并征求同意。隐私政策：https://lbs.amap.com/pages/privacy/
-· 没有广告或自建统计服务；高德 SDK 的数据处理以其隐私政策为准。
+· 地图按您的选择来自 OpenStreetMap、OpenFreeMap、高德地图或 Esri World Imagery，对应服务器可以看到您查看的地图区域。
+· 地点搜索、地址显示和沿道路路线：填写高德 Web 服务 Key 时使用 restapi.amap.com（发送关键词或坐标以及您的 Key）；未填写时使用 photon.komoot.io（搜索）、nominatim.openstreetmap.org（地址）和 routing.openstreetmap.de（道路路线），发送搜索关键词或坐标。
+· 不包含任何第三方 SDK、广告或统计服务。
 · 未同意使用须知前不会加载在线地图，也不会启动模拟服务。"""
 
 const val LICENSES = """osmdroid — Apache License 2.0
+MapLibre Native — BSD 2-Clause License
+矢量瓦片 © OpenFreeMap © OpenMapTiles
 地图数据 © OpenStreetMap contributors — ODbL
 AndroidX / Jetpack Compose — Apache License 2.0
 Kotlin — Apache License 2.0
 Xposed API 82（仅编译期使用，不打包）— Apache License 2.0
-高德地图 SDK — 高德开放平台服务条款与 SDK 许可（非开源）
 
 界面布局参考 Portal（fuqiuluo/Portal，Apache License 2.0）与 PortalDev 的使用流程，代码为本工程独立实现。"""

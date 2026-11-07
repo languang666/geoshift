@@ -5,9 +5,6 @@ import app.geoshift.Geo
 import app.geoshift.MapNetwork
 import app.geoshift.PortalStore
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
 
 /** How a route section between two tapped points is drawn. */
@@ -72,7 +69,7 @@ class RoadRouter(private val context: Context) {
             "https://routing.openstreetmap.de/routed-%s/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson",
             profile.id, a.lon, a.lat, b.lon, b.lat)
         val body = try {
-            fetch(url)
+            httpText(url, allowStatus = 400) // OSRM answers "no route" with HTTP 400 and a JSON body.
         } catch (e: PortalException) {
             throw e
         } catch (e: Exception) {
@@ -91,37 +88,7 @@ class RoadRouter(private val context: Context) {
         }
     }
 
-    private fun fetch(url: String): String {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 8000
-        connection.readTimeout = 15000
-        connection.setRequestProperty("User-Agent", "Geoshift/${PortalStore.VERSION} (Android; app.geoshift)")
-        try {
-            val code = connection.responseCode
-            // OSRM answers "no route" with HTTP 400 and a JSON body.
-            val stream = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                ?: throw PortalException("道路服务 HTTP $code，请稍后重试。")
-            stream.use {
-                val out = ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                var total = 0
-                while (true) {
-                    val n = it.read(buffer)
-                    if (n < 0) break
-                    total += n
-                    if (total > MAX_RESPONSE_BYTES) throw PortalException("道路服务响应过大，请把路线分成更短的几段。")
-                    out.write(buffer, 0, n)
-                }
-                if (code !in 200..299 && code != 400) throw PortalException("道路服务 HTTP $code，请稍后重试。")
-                return out.toString("UTF-8")
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
-
     companion object {
-        private const val MAX_RESPONSE_BYTES = 8 * 1024 * 1024
         const val MAX_POINTS = 10000
 
         /** Joins sections end to start and thins the result to the stored route limit. */

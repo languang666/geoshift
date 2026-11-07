@@ -1,17 +1,19 @@
-# Geoshift（2.4.4，原 Portal Compose 版）
+# Geoshift（2.5.0，原 Portal Compose 版）
 
 原生 Kotlin + Jetpack Compose 重写的虚拟定位工具，界面布局和使用流程参照 PortalDev：
 底部四个标签：地图、历史、模拟、设置；Wi-Fi 模拟、基站模拟、权限与模块引导是二级页面。
 
 - 包名 `app.geoshift`。1.x 网页版（`local.portal.rebuild`）是另一个应用，不能覆盖安装；记录用「设置 → 导出备份 / 导入备份」迁移。2.x 各版本之间可以直接覆盖升级。
 - Java 底层包含模拟服务、摇杆、LSPosed 系统注入、设备扫描、地图网络、坐标算法和本地存储；界面与业务操作使用 Kotlin。
-- 基础地图：osmdroid 原生控件，可通过地图右侧图层按钮或「设置 → 地图图层」切换默认 OpenStreetMap 与高德道路地图，选择会保存。基础地图显示无需 Key，深色模式会对瓦片做反色处理。
-- 全球卫星影像：可在图层菜单选择 Esri World Imagery，影像源为 Esri、Maxar、Earthstar Geographics 及 GIS 用户社区，覆盖和分辨率因地区而异。使用受 Esri 服务许可和网络可用性约束，影像不会随深色模式反色。
-- 官方高清地图：在「设置 → 高德高清地图 Android Key」配置 Android 平台 Key 并同意 SDK 说明后，高德图层使用官方 3D 矢量地图 SDK 11.3.100，支持清晰文字、平滑缩放、旋转、倾斜和原生夜间地图。未配置时继续使用基础瓦片地图。
-- 两类 Key 分开保存在应用私有存储：Android Key 用于官方地图；Web 服务 Key 用于搜索与地址。两处填写页均附申请教程和官方链接，Android 教程自动显示并支持复制当前安装包的包名与 SHA1。Key 不进入备份或系统定位配置。
-- 高德图层使用在线道路瓦片接口；标记、路线和相机转换为 GCJ-02 显示，点击选点转换回 WGS-84。切换时保留相同地理中心和缩放，存储和模拟定位始终使用 WGS-84。瓦片可用性取决于网络和地图服务。
+- **全部功能无需任何 Key**。高德 Web 服务 Key 是可选项，只用来提升国内搜索、地址和道路数据。2.5.0 起不再内置高德地图 SDK，也不再需要 Android Key（升级时会清除旧版保存的 Android Key）。
+- 地图图层（地图右侧图层按钮或「设置 → 地图图层」，选择会保存；切换时保留中心和缩放）：
+  - 默认地图：OpenStreetMap 瓦片（osmdroid），深色模式对瓦片反色。
+  - 矢量地图：MapLibre Native + OpenFreeMap 矢量瓦片，文字清晰、可旋转倾斜，深色模式使用深色样式；地名优先显示中文（name:zh-Hans / name:zh）。路线画在文字下方，不遮挡路名。
+  - 高德地图：在线道路瓦片；标记、路线和相机转换为 GCJ-02 显示，点击选点转换回 WGS-84。
+  - 全球卫星影像：Esri World Imagery（Esri、Maxar、Earthstar Geographics 及 GIS 用户社区），覆盖和分辨率因地区而异，不随深色模式反色。
+  - 存储和模拟定位始终使用 WGS-84。
+- 地点搜索 / 地址显示：未填 Key 时用 Photon（搜索，按当前地图中心就近排序）和 Nominatim（地址，限速每秒 1 次），均为 OpenStreetMap 数据；填了高德 Web 服务 Key 时改用高德，坐标按 GCJ-02 ↔ WGS-84 换算。Key 只保存在应用私有存储，不进入备份或系统定位配置。
 - 沿道路路线：路线编辑时可选「直线 / 步行 / 骑行 / 驾车」。选道路方式后，相邻两个途经点之间按真实道路连接：填了高德 Web 服务 Key 时用高德路径规划，否则用 FOSSGIS 提供的公共 OSRM 服务（OpenStreetMap 数据）。保存的路线含完整道路折线（最多 10,000 点），播放时沿道路移动、不再联网；同时记录途经点和出行方式。
-- 地点搜索 / 地址显示：可选，填写高德 Web 服务 Key 后使用；坐标按 GCJ-02 ↔ WGS-84 换算。
 - 不包含：原版的许可证服务、Root 检测、"网络降级到 2G"（会改动手机真实网络）、广告和统计 SDK。
 
 ## 系统定位
@@ -68,5 +70,5 @@ Android 静态检查：`./gradlew lintRelease`。请与发布构建串行执行�
 本项目代码以 Apache License 2.0 发布，见 [LICENSE](LICENSE)。
 
 osmdroid、AndroidX、Kotlin、Xposed API（仅编译期）均为 Apache License 2.0；地图数据 © OpenStreetMap contributors（ODbL）。
-高德地图 SDK 为高德开放平台专有 SDK，使用受其 SDK 许可及服务条款约束；隐私政策：https://lbs.amap.com/pages/privacy/ 。仅在用户配置 Android Key 并单独同意 SDK 说明后初始化，不启动 SDK 自动定位。官方地图使用 ARM 原生库，安装包因此比基础图版本大。
+MapLibre Native 为 BSD 2-Clause License；矢量瓦片 © OpenFreeMap © OpenMapTiles。搜索、地址和道路路线分别使用 Photon（Komoot）、Nominatim 和 FOSSGIS OSRM 公共服务，请遵守其使用政策。
 界面流程参照 fuqiuluo/Portal（Apache License 2.0）与 PortalDev；代码为本工程独立实现，未复制原版 bundle、DEX 或原生库。

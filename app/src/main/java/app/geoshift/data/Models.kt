@@ -80,9 +80,6 @@ data class SettingsState(
     val satelliteCount: Int,
     val mapKeyConfigured: Boolean,
     val mapSource: MapSource,
-    val amapAndroidKeyConfigured: Boolean,
-    val amapAndroidKeyRevision: Long,
-    val amapSdkAccepted: Boolean,
     val protectWifi: Boolean,
     /** LSPosed: hide real Wi-Fi, cells and satellites from apps while simulating. */
     val spoofEnvironment: Boolean,
@@ -109,9 +106,6 @@ data class SettingsState(
             satelliteCount = o.optInt("satelliteCount", 12),
             mapKeyConfigured = o.optBoolean("mapKeyConfigured"),
             mapSource = MapSource.fromKey(o.optString("mapSource", "osm")),
-            amapAndroidKeyConfigured = o.optBoolean("amapAndroidKeyConfigured"),
-            amapAndroidKeyRevision = o.optLong("amapAndroidKeyRevision"),
-            amapSdkAccepted = o.optBoolean("amapSdkAccepted"),
             protectWifi = o.optBoolean("protectWifi"),
             spoofEnvironment = o.optBoolean("spoofEnvironment", true) || o.optBoolean("protectWifi"),
         )

@@ -4,10 +4,3 @@
 -dontwarn de.robv.android.xposed.**
 # Keep source file/line info readable in crash logs.
 -keepattributes SourceFile,LineNumberTable
-# The official map SDK uses JNI and reflective callbacks internally.
--keep class com.amap.api.** { *; }
--keep class com.autonavi.** { *; }
--dontwarn com.amap.api.**
--dontwarn com.autonavi.**
-# Optional soft GNSS extension in the bundled location SDK; no location client is started.
--dontwarn com.amap.ams.gnss.GnssSoftLocator

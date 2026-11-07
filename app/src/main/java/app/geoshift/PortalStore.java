@@ -101,12 +101,12 @@ public final class PortalStore {
                     "spoofEnvironment", true);
             merge(value, parse(preferences(c).getString("settings", "{}")));
             value.remove("mapKey");
-            value.remove("amapAndroidKey");
+            // 2.5.0 dropped the AMap map SDK; forget the Android key it needed.
+            if (preferences(c).contains("amapAndroidKey")) {
+                preferences(c).edit().remove("amapAndroidKey").remove("amapAndroidKeyRevision").remove("amapSdkAccepted").apply();
+            }
             try {
                 value.put("mapKeyConfigured", !preferences(c).getString("mapKey", "").isEmpty());
-                value.put("amapAndroidKeyConfigured", !amapAndroidKey(c).isEmpty());
-                value.put("amapAndroidKeyRevision", preferences(c).getLong("amapAndroidKeyRevision", 0));
-                value.put("amapSdkAccepted", preferences(c).getBoolean("amapSdkAccepted", false));
             } catch (Exception ignored) {}
             settingsCache = value;
         }
@@ -118,19 +118,9 @@ public final class PortalStore {
         JSONObject safe = copy(patch);
         safe.remove("mapKeyConfigured");
         safe.remove("mapKey");
-        safe.remove("amapAndroidKey");
-        safe.remove("amapAndroidKeyConfigured");
-        safe.remove("amapAndroidKeyRevision");
-        safe.remove("amapSdkAccepted");
         merge(stored, safe);
         SharedPreferences.Editor editor = preferences(c).edit().putString("settings", stored.toString());
         if (patch.has("mapKey")) editor.putString("mapKey", patch.optString("mapKey", "").trim());
-        if (patch.has("amapAndroidKey")) {
-            String key = patch.optString("amapAndroidKey", "").trim();
-            editor.putString("amapAndroidKey", key);
-            editor.putLong("amapAndroidKeyRevision", preferences(c).getLong("amapAndroidKeyRevision", 0) + 1);
-            editor.putBoolean("amapSdkAccepted", !key.isEmpty() && patch.optBoolean("amapSdkAccepted"));
-        }
         editor.apply();
         settingsCache = null;
         pushToSystem(c);
@@ -138,10 +128,6 @@ public final class PortalStore {
 
     public static String mapKey(Context c) {
         return preferences(c).getString("mapKey", "");
-    }
-
-    public static String amapAndroidKey(Context c) {
-        return preferences(c).getString("amapAndroidKey", "");
     }
 
     /** Ground speed in metres per second for the configured movement mode and multiplier. */

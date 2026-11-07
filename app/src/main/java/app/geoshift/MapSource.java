@@ -2,22 +2,26 @@ package app.geoshift;
 
 /** Map coordinates are display-only; stored locations and routes always remain WGS-84. */
 public enum MapSource {
-    DEFAULT("osm", "默认地图", "© OpenStreetMap contributors"),
-    AMAP("amap", "高德地图", "© 高德地图"),
-    SATELLITE("satellite", "全球卫星影像", "Sources: Esri, Maxar, Earthstar Geographics, GIS User Community");
+    DEFAULT("osm", "默认地图", "全球地图 · OpenStreetMap", "© OpenStreetMap contributors"),
+    VECTOR("vector", "矢量地图", "矢量地图 · 清晰可旋转（OpenFreeMap）", "© OpenFreeMap © OpenMapTiles © OpenStreetMap contributors"),
+    AMAP("amap", "高德地图", "高德地图 · 国内道路更全", "© 高德地图"),
+    SATELLITE("satellite", "全球卫星影像", "全球卫星影像 · Esri", "Sources: Esri, Maxar, Earthstar Geographics, GIS User Community");
 
     public final String key;
     public final String label;
+    public final String menuLabel;
     public final String attribution;
 
-    MapSource(String key, String label, String attribution) {
+    MapSource(String key, String label, String menuLabel, String attribution) {
         this.key = key;
         this.label = label;
+        this.menuLabel = menuLabel;
         this.attribution = attribution;
     }
 
     public static MapSource fromKey(String key) {
-        return "amap".equals(key) ? AMAP : "satellite".equals(key) ? SATELLITE : DEFAULT;
+        for (MapSource s : values()) if (s.key.equals(key)) return s;
+        return DEFAULT;
     }
 
     public double[] toDisplay(double latitude, double longitude) {

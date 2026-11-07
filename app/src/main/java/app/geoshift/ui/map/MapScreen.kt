@@ -94,7 +94,6 @@ import app.geoshift.ui.components.formatCoord
 import app.geoshift.ui.components.formatDistance
 import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.isDark
-import app.geoshift.ui.settings.MapKeyDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -126,17 +125,9 @@ fun MapScreen(
     var searchGeneration by remember { mutableIntStateOf(0) }
     var addressGeneration by remember { mutableIntStateOf(0) }
     val camera = remember { MapCamera(r.position) }
-    var androidKeyDialog by remember { mutableStateOf(false) }
-    var nativeFailure by remember(s.settings.amapAndroidKeyRevision, s.settings.mapSource) { mutableStateOf(false) }
-    var nativeLoaded by remember(s.settings.amapAndroidKeyRevision, s.settings.mapSource) { mutableStateOf(false) }
-    var slowNative by remember(s.settings.amapAndroidKeyRevision, s.settings.mapSource) { mutableStateOf(false) }
     var bottomCardHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    val nativeMap = s.settings.mapSource == MapSource.AMAP && s.settings.amapAndroidKeyConfigured &&
-        s.settings.amapSdkAccepted && s.settings.privacyAccepted && !nativeFailure
-    LaunchedEffect(nativeMap) {
-        if (nativeMap) { delay(15_000); slowNative = true }
-    }
+    val vectorMap = s.settings.mapSource == MapSource.VECTOR
     val focus = LocalFocusManager.current
 
     // Road routes: each section between tapped points is snapped to roads in the background.
@@ -170,10 +161,10 @@ fun MapScreen(
     val editAnchors = if (road) waypoints else emptyList()
 
     // Reverse-geocode the selected point when a map key is configured.
-    LaunchedEffect(selected, s.settings.mapKeyConfigured, s.settings.privacyAccepted) {
+    LaunchedEffect(selected, s.settings.privacyAccepted) {
         val generation = ++addressGeneration
         val p = selected ?: return@LaunchedEffect
-        if (s.settings.mapKeyConfigured && s.settings.privacyAccepted)
+        if (s.settings.privacyAccepted)
             vm.run<String>(onDone = { if (selected == p && addressGeneration == generation) address = it }) { reverseGeocode(p) }
     }
 
@@ -186,14 +177,14 @@ fun MapScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        if (nativeMap) AmapMap(
+        if (vectorMap) VectorMap(
             modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled,
             selected = if (editing) null else selected, route = if (editing) editRoute else r.route,
-            routeEditing = editing, anchors = if (editing) editAnchors else emptyList(), dark = isDark(s.settings.theme), keyRevision = s.settings.amapAndroidKeyRevision,
-            camera = camera, center = centerRequest, logoBottomMargin = bottomCardHeight + with(density) { 8.dp.roundToPx() },
+            routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
+            online = s.settings.privacyAccepted, dark = isDark(s.settings.theme),
+            camera = camera, center = centerRequest,
             onTap = { p -> if (editing) draft.add(p) else select(p) },
             onLongPress = { p -> if (!editing) select(p) },
-            onLoaded = { nativeLoaded = true }, onFailure = { nativeFailure = true },
         ) else OsmMap(
             modifier = Modifier.fillMaxSize(),
             virtual = r.position,
@@ -228,25 +219,14 @@ fun MapScreen(
                         val keyword = query.trim()
                         val generation = ++searchGeneration
                         if (keyword.isEmpty()) vm.toast("请输入地点关键词")
-                        else if (!s.settings.mapKeyConfigured) vm.toast("位置搜索需要在设置中填写高德 Web 服务 Key")
+                        else if (!s.settings.privacyAccepted) vm.toast("位置搜索需要联网，请先在设置中同意隐私说明")
                         else vm.run<List<PortalActions.Place>>(onDone = {
                             if (searchGeneration == generation && !editing) {
                                 results = it
                                 if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
                             }
-                        }) { search(keyword) }
+                        }) { search(keyword, camera.target) }
                     }, onClear = { query = ""; searchGeneration++; results = emptyList() })
-                }
-            }
-            if (s.settings.mapSource == MapSource.AMAP && (!nativeMap || !nativeLoaded)) {
-                Surface(Modifier.padding(top = 8.dp).fillMaxWidth().clickable { androidKeyDialog = true },
-                    shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
-                    Text(when {
-                        nativeFailure -> "高清地图暂不可用，已使用基础图 · 查看配置"
-                        !nativeMap -> "高德基础图 · 配置 Android Key 开启高清地图"
-                        slowNative -> "高清地图加载较慢 · 检查网络、Android Key 与 SHA1"
-                        else -> "正在加载高德高清地图…"
-                    }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
                 }
             }
             AnimatedVisibility(results.isNotEmpty() && !editing) {
@@ -282,27 +262,16 @@ fun MapScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box {
-                MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}", active = s.settings.mapSource == MapSource.AMAP) { mapMenu = true }
+                MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}", active = s.settings.mapSource != MapSource.DEFAULT) { mapMenu = true }
                 DropdownMenu(expanded = mapMenu, onDismissRequest = { mapMenu = false }) {
                     MapSource.values().forEach { source ->
-                        DropdownMenuItem(text = { Text(when (source) { MapSource.DEFAULT -> "全球地图 · OpenStreetMap（无需 Key）"; MapSource.SATELLITE -> "全球卫星影像 · Esri"; else -> "高德地图 · 基础 / 高清" }) },
+                        DropdownMenuItem(text = { Text(source.menuLabel) },
                             trailingIcon = { if (source == s.settings.mapSource) Icon(Icons.Rounded.Check, "已选择") },
                             onClick = {
                                 mapMenu = false
                                 if (source != s.settings.mapSource) vm.run("已切换至${source.label}") {
                                     saveSettings(JSONObject().put("mapSource", source.key))
                                 }
-                            })
-                    }
-                    if (s.settings.mapSource == MapSource.AMAP) {
-                        DropdownMenuItem(text = { Text("高清地图设置与申请教程") }, onClick = { mapMenu = false; androidKeyDialog = true })
-                        if (s.settings.amapAndroidKeyConfigured) DropdownMenuItem(
-                            text = { Text(if (nativeMap) "切换为高德基础图" else "重试高德高清地图") },
-                            onClick = {
-                                mapMenu = false
-                                nativeFailure = nativeMap
-                                nativeLoaded = false
-                                slowNative = false
                             })
                     }
                 }
@@ -378,7 +347,7 @@ fun MapScreen(
             }
         }
 
-        if (!nativeMap) Text(
+        Text(
             s.settings.mapSource.attribution,
             style = MaterialTheme.typography.labelSmall,
             color = Color(0xFF555B6E),
@@ -386,13 +355,6 @@ fun MapScreen(
                 .background(Color(0x99FFFFFF), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp),
         )
     }
-
-    if (androidKeyDialog) MapKeyDialog(androidKey = true, configured = s.settings.amapAndroidKeyConfigured,
-        onDismiss = { androidKeyDialog = false }, onMessage = vm::toast, onSave = { key, accepted ->
-            vm.run(if (key.isEmpty()) "已清除 Android Key" else "Android Key 已保存，正在加载高清地图") {
-                saveSettings(JSONObject().put("amapAndroidKey", key).put("amapSdkAccepted", accepted))
-            }
-        })
 
     saveDialog?.let { suggestion ->
         val p = selected
