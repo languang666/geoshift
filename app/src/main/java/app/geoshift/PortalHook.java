@@ -42,6 +42,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
     private static final long REPORT_INTERVAL_MS = 3000;
 
     private static volatile Context context;
+    private static boolean attachHooked;
     private static JSONObject cached;
     private static volatile boolean systemLocation;
     private static String processName = "";
@@ -58,11 +59,16 @@ public final class PortalHook implements IXposedHookLoadPackage {
         }
         if (SELF.equals(p.packageName)) return;
         processName = p.processName == null ? p.packageName : p.processName;
-        XposedHelpers.findAndHookMethod(Application.class, "attach", Context.class, new XC_MethodHook() {
-            @Override protected void afterHookedMethod(MethodHookParam h) {
-                attached(((Context) h.args[0]).getApplicationContext(), p);
-            }
-        });
+        // One hook per process: shared processes (com.android.phone) load several packages.
+        if (!attachHooked) {
+            attachHooked = true;
+            XposedHelpers.findAndHookMethod(Application.class, "attach", Context.class, new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam h) {
+                    // getApplicationContext() is still null at this point; the Application itself is usable.
+                    attached((Context) h.thisObject, p);
+                }
+            });
+        }
         // Persistent processes such as com.android.phone may already have their Application.
         try {
             Object app = XposedHelpers.callStaticMethod(Class.forName("android.app.ActivityThread"), "currentApplication");
@@ -75,6 +81,8 @@ public final class PortalHook implements IXposedHookLoadPackage {
         context = app;
         if ("com.android.phone".equals(p.packageName) || "com.android.phone".equals(p.processName))
             installPhone(p.classLoader, app.getClassLoader());
+        else if (BLUETOOTH_PACKAGES.contains(p.packageName) || BLUETOOTH_PACKAGES.contains(p.processName))
+            installBluetooth(p.classLoader, app.getClassLoader());
         else install();
     }
 
@@ -160,6 +168,50 @@ public final class PortalHook implements IXposedHookLoadPackage {
     private static GnssStatus gnss(JSONObject config) { return FakeEnvironment.gnss(config); }
 
     // ---- Hook installation --------------------------------------------------------------------
+
+    /** The Bluetooth stack: AOSP / most ROMs, and the Google build on Pixel and the emulator. */
+    private static final java.util.Set<String> BLUETOOTH_PACKAGES =
+            new java.util.HashSet<>(java.util.Arrays.asList("com.android.bluetooth", "com.google.android.bluetooth"));
+    private static final java.util.concurrent.atomic.AtomicLong bleDrops = new java.util.concurrent.atomic.AtomicLong();
+
+    /**
+     * Bluetooth process (LSPosed scope "蓝牙"): while the environment is simulated, apps receive no
+     * Bluetooth LE scan results, because location SDKs look nearby beacons up to find the real
+     * position. Connected devices keep working; classic discovery (pairing in Settings) is untouched.
+     */
+    private static void installBluetooth(ClassLoader... loaders) {
+        if (!installed.add("__bluetooth_hooks__")) return;
+        XC_MethodHook drop = new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                if (active("environment") == null) return;
+                h.setResult(null);
+                long n = bleDrops.incrementAndGet();
+                report("bluetooth", null, "read", "已拦截蓝牙扫描结果 " + n + " 次");
+            }
+        };
+        int hooks = 0;
+        Set<Class<?>> seen = new java.util.HashSet<>();
+        // Callback-based scans: the AIDL proxy each result is sent through to the scanning app.
+        for (ClassLoader loader : loaders) {
+            Class<?> proxy = XposedHelpers.findClassIfExists("android.bluetooth.le.IScannerCallback$Stub$Proxy", loader);
+            if (proxy == null || !seen.add(proxy)) continue;
+            for (String name : new String[]{"onScanResult", "onBatchScanResults", "onFoundOrLost"})
+                hooks += XposedBridge.hookAllMethods(proxy, name, drop).size();
+        }
+        // PendingIntent-based scans. The class holding this method moved between Android versions.
+        for (String className : new String[]{"com.android.bluetooth.le_scan.TransitionalScanHelper",
+                "com.android.bluetooth.le_scan.ScanController", "com.android.bluetooth.gatt.GattService"}) {
+            for (ClassLoader loader : loaders) {
+                Class<?> type = XposedHelpers.findClassIfExists(className, loader);
+                if (type == null || !seen.add(type)) continue;
+                hooks += XposedBridge.hookAllMethods(type, "sendResultsByPendingIntent", drop).size();
+            }
+        }
+        XposedBridge.log("Geoshift bluetooth scan hooks: " + hooks);
+        if (hooks == 0) installed.remove("__bluetooth_hooks__");
+        report("bluetooth", hooks == 0 ? new IllegalStateException("IScannerCallback") : null,
+                hooks == 0 ? "error" : "installed", hooks == 0 ? "蓝牙进程未找到扫描结果入口" : "蓝牙扫描伪装入口已安装（" + hooks + " 处）");
+    }
 
     /** Config while the phone process should answer apps with simulated cells (or none), else null. */
     private static JSONObject phoneCells() {

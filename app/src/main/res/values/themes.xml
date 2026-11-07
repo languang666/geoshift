@@ -5,5 +5,5 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
     <color name="window">#FFF7F8FC</color>
-    <string-array name="xposed_scope"><item>android</item><item>com.android.phone</item></string-array>
+    <string-array name="xposed_scope"><item>android</item><item>com.android.phone</item><item>com.android.bluetooth</item><item>com.google.android.bluetooth</item></string-array>
 </resources>

@@ -129,10 +129,10 @@ fun SettingsScreen(
         }
         Spacer12()
         SettingGroup {
-            SettingRow("伪装 Wi-Fi、基站和卫星", "LSPosed 模式：模拟期间应用只能看到预设 Wi-Fi / 基站（未设置则为空）和模拟卫星，防止定位 SDK 用真实信号反查位置",
+            SettingRow("伪装 Wi-Fi、基站、卫星和蓝牙", "LSPosed 模式：模拟期间应用只能看到预设 Wi-Fi / 基站（未设置则为空）、模拟卫星，且扫描不到蓝牙设备（已连接的设备不受影响），防止定位 SDK 用真实信号反查位置",
                 icon = Icons.Rounded.PrivacyTip, checked = st.spoofEnvironment, enabled = st.lsposed,
                 onCheckedChange = { on ->
-                    vm.run(if (on) "已开启环境伪装，模拟时生效" else "已关闭环境伪装，应用可能用真实 Wi-Fi / 基站算出真实位置") {
+                    vm.run(if (on) "已开启环境伪装，模拟时生效" else "已关闭环境伪装，应用可能用真实 Wi-Fi / 基站 / 蓝牙算出真实位置") {
                         saveSettings(JSONObject().put("spoofEnvironment", on).put("protectWifi", false))
                     }
                 })

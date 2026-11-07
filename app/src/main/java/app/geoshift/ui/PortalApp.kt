@@ -96,7 +96,7 @@ fun PortalApp(vm: PortalViewModel, onOpen: (SystemTarget) -> Unit, onExport: () 
                         "1. 下拉通知栏，点击 LSPosed / Vector 的常驻通知；\n" +
                         "2. 打开拨号盘，输入 *#*#5776733#*#*；\n" +
                         "3. 在管理器设置中创建桌面快捷方式。\n\n" +
-                        "进入后在「模块」里启用 Geoshift，作用域勾选「系统框架」和「电话服务」，然后重启手机。")
+                        "进入后在「模块」里启用 Geoshift，作用域勾选「系统框架」「电话服务」和「蓝牙」，然后重启手机。")
                 },
                 confirmButton = { androidx.compose.material3.TextButton(onClick = vm::hideLsposedHelp) { Text("知道了") } },
             )

@@ -123,7 +123,7 @@ fun SetupScreen(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> U
             } else {
                 Guide(1, "打开 LSPosed 管理器（新版名为 Vector；从通知栏的常驻通知、桌面快捷方式进入，或在拨号盘输入 *#*#5776733#*#*）。", null)
                 Guide(2, "在「模块」中找到 Geoshift，打开启用开关。", null)
-                Guide(3, "勾选「系统框架」和「电话服务」即可，不需要勾选目标应用。", null)
+                Guide(3, "勾选「系统框架」「电话服务」和「蓝牙」即可，不需要勾选目标应用。", null)
                 Guide(4, "重启手机，回到这里点「重新检查」。", s.caps.hookActive)
                 Spacer(Modifier.size(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

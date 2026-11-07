@@ -14,6 +14,7 @@ import android.provider.Settings;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Iterator;
+import java.util.Map;
 
 /** Private local state. The exported provider exposes only an explicitly selected subset. */
 public final class PortalStore {
@@ -42,6 +43,47 @@ public final class PortalStore {
 
     public static SharedPreferences preferences(Context c) {
         return c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    /**
+     * Small, frequently written state (runtime position, hook heartbeat, diagnostics). Kept apart from
+     * the records because SharedPreferences rewrites its whole file on every change: during a
+     * simulation this is written every few seconds, and must not rewrite all saved routes each time.
+     */
+    public static SharedPreferences state(Context c) {
+        SharedPreferences state = c.getApplicationContext().getSharedPreferences(PREFS + "_state", Context.MODE_PRIVATE);
+        if (!stateMigrated) migrateState(c, state);
+        return state;
+    }
+
+    private static volatile boolean stateMigrated;
+
+    private static boolean isStateKey(String key) {
+        return key.equals("runtime") || key.equals("featureStatus") || key.equals("hookSeenAt")
+                || key.equals("hookSystem") || key.startsWith("featureCleared_");
+    }
+
+    /** Moves state keys written by 2.5.0 and earlier out of the main file, once. */
+    private static synchronized void migrateState(Context c, SharedPreferences state) {
+        if (stateMigrated) return;
+        SharedPreferences main = preferences(c);
+        SharedPreferences.Editor to = state.edit(), from = main.edit();
+        boolean moved = false;
+        for (Map.Entry<String, ?> e : main.getAll().entrySet()) {
+            String key = e.getKey();
+            if (!isStateKey(key)) continue;
+            Object v = e.getValue();
+            if (v instanceof String) to.putString(key, (String) v);
+            else if (v instanceof Long) to.putLong(key, (Long) v);
+            else if (v instanceof Boolean) to.putBoolean(key, (Boolean) v);
+            from.remove(key);
+            moved = true;
+        }
+        if (moved) {
+            to.commit();
+            from.apply();
+        }
+        stateMigrated = true;
     }
 
     // ---- JSON helpers -------------------------------------------------------------------------
@@ -165,7 +207,7 @@ public final class PortalStore {
                 "overlay", false, "error", "", "wifiEnabled", false, "wifi", obj("ssid", "", "bssid", ""),
                 "cellEnabled", false, "cell", new JSONObject());
         SharedPreferences prefs = preferences(c);
-        merge(live, parse(prefs.getString("runtime", "{}")));
+        merge(live, parse(state(c).getString("runtime", "{}")));
         String route = prefs.getString("runtimeRoute", null);
         if (route != null) {
             try {
@@ -240,9 +282,9 @@ public final class PortalStore {
                     if (!"route".equals(key)) persisted.put(key, live.get(key));
                 }
             } catch (Exception ignored) {}
-            SharedPreferences.Editor editor = preferences(c).edit().putString("runtime", persisted.toString());
-            if (patch.has("route")) editor.putString("runtimeRoute", String.valueOf(live.opt("route")));
-            editor.apply();
+            state(c).edit().putString("runtime", persisted.toString()).apply();
+            // The route is large and changes rarely, so it stays with the records.
+            if (patch.has("route")) preferences(c).edit().putString("runtimeRoute", String.valueOf(live.opt("route"))).apply();
             lastRuntimeWrite = now;
         }
         pushToSystem(c);
@@ -289,7 +331,7 @@ public final class PortalStore {
     // ---- Hook / feature status ----------------------------------------------------------------
 
     public static boolean hookActive(Context c) {
-        long age = System.currentTimeMillis() - preferences(c).getLong("hookSeenAt", 0);
+        long age = System.currentTimeMillis() - state(c).getLong("hookSeenAt", 0);
         return age >= 0 && age < 60000;
     }
 
@@ -298,18 +340,18 @@ public final class PortalStore {
         long now = SystemClock.elapsedRealtime();
         if (lastHookSeenWrite != 0 && now - lastHookSeenWrite < HOOK_SEEN_PERSIST_MS) return;
         lastHookSeenWrite = now;
-        preferences(c).edit().putLong("hookSeenAt", System.currentTimeMillis()).apply();
+        state(c).edit().putLong("hookSeenAt", System.currentTimeMillis()).apply();
     }
 
     private static JSONObject featureStatus(Context c) {
-        return parse(preferences(c).getString("featureStatus", "{}"));
+        return parse(state(c).getString("featureStatus", "{}"));
     }
 
     public static synchronized void reportFeature(Context c, String feature, JSONObject status) {
         try {
             JSONObject statuses = featureStatus(c);
             statuses.put(feature, status);
-            preferences(c).edit().putString("featureStatus", statuses.toString()).apply();
+            state(c).edit().putString("featureStatus", statuses.toString()).apply();
         } catch (Exception ignored) {}
     }
 
@@ -317,14 +359,14 @@ public final class PortalStore {
         JSONObject statuses = featureStatus(c);
         statuses.remove(feature);
         // Remember when it was cleared so older reports still held by the system hook are ignored.
-        preferences(c).edit().putString("featureStatus", statuses.toString())
+        state(c).edit().putString("featureStatus", statuses.toString())
                 .putLong("featureCleared_" + feature, System.currentTimeMillis()).apply();
     }
 
     /** Stores a report from the system hook if it is newer than both the stored one and the last clear. */
     public static synchronized void mergeReport(Context c, String feature, JSONObject report) {
         long time = report.optLong("time");
-        if (time <= preferences(c).getLong("featureCleared_" + feature, 0)) return;
+        if (time <= state(c).getLong("featureCleared_" + feature, 0)) return;
         JSONObject old = featureStatus(c).optJSONObject(feature);
         if (old != null && old.optLong("time") >= time) return;
         reportFeature(c, feature, report);
@@ -390,7 +432,7 @@ public final class PortalStore {
                 "phoneAvailable", c.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY),
                 "mockSelected", mockSelected(c),
                 "hookActive", hookActive(c),
-                "systemHook", hookActive(c) && preferences(c).getBoolean("hookSystem", false),
+                "systemHook", hookActive(c) && state(c).getBoolean("hookSystem", false),
                 "nearbyWifi", Build.VERSION.SDK_INT < 33
                         || c.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED,
                 "cellSimulation", true,

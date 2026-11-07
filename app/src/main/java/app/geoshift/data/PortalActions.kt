@@ -49,9 +49,11 @@ class PortalActions(context: Context) {
 
     /** Versions before routeId could retain an already-deleted selected route. */
     private fun reconcileDeletedRoute() = synchronized(RECORD_LOCK) {
+        // Cheap check first: only routes selected before routeId existed need the full comparison.
+        if (PortalStore.runtimeFields(c, "routeId").optString("routeId").isNotEmpty()) return@synchronized
+        if (PortalStore.routeCoordinates(c)[0].isEmpty()) return@synchronized
         val r = PortalStore.runtimeFields(c, "routeId", "routeName", "route", "mode", "enabled")
         val points = r.optJSONArray("route") ?: return@synchronized
-        if (points.length() == 0 || r.optString("routeId").isNotEmpty()) return@synchronized
         val exists = PortalStore.items(c, "routes").objects().any {
             it.optString("name") == r.optString("routeName") && it.optJSONArray("points")?.toString() == points.toString()
         }
@@ -78,7 +80,7 @@ class PortalActions(context: Context) {
             lm.sendExtraCommand("geoshift", "PING", b)
             if (!b.getBoolean("active")) return
             PortalStore.markHookSeen(c)
-            val prefs = PortalStore.preferences(c)
+            val prefs = PortalStore.state(c)
             val system = b.getBoolean("system")
             if (prefs.getBoolean("hookSystem", false) != system) prefs.edit().putBoolean("hookSystem", system).apply()
             val reports = JSONObject(b.getString("reports") ?: "{}")

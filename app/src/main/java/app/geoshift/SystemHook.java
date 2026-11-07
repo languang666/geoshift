@@ -169,7 +169,7 @@ final class SystemHook {
             }
             case "REPORT": {
                 String feature = extras.getString("feature", "");
-                if (!java.util.Arrays.asList("location", "wifi", "cell", "gnss").contains(feature)) return;
+                if (!java.util.Arrays.asList("location", "wifi", "cell", "gnss", "bluetooth").contains(feature)) return;
                 String error = extras.getString("error", "");
                 if (error.length() > 300) error = error.substring(0, 300);
                 reports.put(feature, new JSONObject().put("ok", extras.getBoolean("ok")).put("time", System.currentTimeMillis())

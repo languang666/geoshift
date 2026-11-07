@@ -146,13 +146,15 @@ fun MockScreen(
         if (s.settings.lsposed) {
             SectionTitle("系统定位诊断")
             SettingGroup {
-                SettingRow("检查系统定位交付", "勾选系统框架和电话服务，重启后开启模拟。观察定位推送、应用回调替换和 Wi-Fi / 基站报告。", onClick = onOpenSetup)
+                SettingRow("检查系统定位交付", "勾选系统框架、电话服务和蓝牙，重启后开启模拟。观察定位推送、应用回调替换和 Wi-Fi / 基站 / 蓝牙报告。", onClick = onOpenSetup)
                 listOf("location_system" to "系统定位分发", "location_pump" to "持续位置推送", "environment_system" to "应用回调与卫星/基站",
-                    "wifi_privacy" to "Wi-Fi 伪装", "cell" to "电话服务基站").forEach { (key, title) ->
+                    "wifi_privacy" to "Wi-Fi 伪装", "cell" to "电话服务基站", "bluetooth" to "蓝牙扫描").forEach { (key, title) ->
                     val report = s.featureStatus[key]
                     val status = when {
                         key == "wifi_privacy" && !s.settings.spoofEnvironment && !s.runtime.wifiEnabled -> "未启用"
+                        key == "bluetooth" && !s.settings.spoofEnvironment -> "未启用"
                         report == null -> "暂无报告"
+                        report.ok && report.stage == "installed" -> "已安装，待验证"
                         System.currentTimeMillis() - report.time > 60_000 -> "历史报告"
                         !report.ok -> "出现错误"
                         report.stage == "read" -> "已命中读取"
@@ -163,6 +165,7 @@ fun MockScreen(
                     val details = if (report == null) {
                         if (key == "wifi_privacy") "开始模拟后，等待应用读取 Wi-Fi 时报告。"
                         else if (key == "cell") "需勾选「电话服务」并重启；应用查询基站时报告。"
+                        else if (key == "bluetooth") "需勾选「蓝牙」并重启；应用扫描蓝牙时报告。"
                         else if (key == "location_pump") "开始模拟后显示已发现的提供器及推送成功、失败次数。"
                         else "尚无系统报告；入口安装与目标应用实际接收需分别验证。"
                     } else

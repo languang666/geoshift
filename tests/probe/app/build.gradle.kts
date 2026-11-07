@@ -7,3 +7,7 @@ android {
     buildTypes { getByName("debug") { isMinifyEnabled = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
+dependencies {
+    // Google Play services fused location, as used by most app SDKs outside China.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+}

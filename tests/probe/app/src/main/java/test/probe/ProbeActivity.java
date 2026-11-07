@@ -36,7 +36,9 @@ public class ProbeActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Executor main = handler::post;
     private TextView view;
-    private int gnssCallbacks, nmeaCount, measurementCount, navCount;
+    private int gnssCallbacks, nmeaCount, measurementCount, navCount, bleResults;
+    private final java.util.Set<String> bleDevices = new java.util.TreeSet<>();
+    private android.bluetooth.le.ScanCallback bleCallback;
     private String measurementSample = "";
     private String gnssSummary = "无回调", nmeaSample = "";
 
@@ -115,6 +117,39 @@ public class ProbeActivity extends Activity {
             });
         } catch (Throwable e) { put("5.gnssRaw", "ERR " + e); }
 
+        // Google Play services fused location (what FusedLocationProviderClient-based SDKs see).
+        try {
+            com.google.android.gms.location.FusedLocationProviderClient f =
+                    com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(this);
+            put("10.gms.last", "no callback");
+            f.getLastLocation().addOnCompleteListener(t -> put("10.gms.last", t.isSuccessful() ? loc(t.getResult()) : "ERR " + t.getException()));
+            put("10.gms.currentHigh", "no callback");
+            f.getCurrentLocation(com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, null)
+                    .addOnCompleteListener(t -> put("10.gms.currentHigh", t.isSuccessful() ? loc(t.getResult()) : "ERR " + t.getException()));
+            put("10.gms.currentBalanced", "no callback");
+            f.getCurrentLocation(com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                    .addOnCompleteListener(t -> put("10.gms.currentBalanced", t.isSuccessful() ? loc(t.getResult()) : "ERR " + t.getException()));
+            put("10.gms.updates", "no callback");
+            f.requestLocationUpdates(new com.google.android.gms.location.LocationRequest.Builder(
+                    com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, 1000).build(),
+                    new com.google.android.gms.location.LocationCallback() {
+                        @Override public void onLocationResult(com.google.android.gms.location.LocationResult r) {
+                            put("10.gms.updates", loc(r.getLastLocation()));
+                        }
+                    }, Looper.getMainLooper());
+        } catch (Throwable e) { put("10.gms.last", "ERR " + e); }
+        // Bluetooth LE scan: beacons nearby are a location clue for SDKs.
+        try {
+            android.bluetooth.le.BluetoothLeScanner scanner = getSystemService(android.bluetooth.BluetoothManager.class).getAdapter().getBluetoothLeScanner();
+            bleCallback = new android.bluetooth.le.ScanCallback() {
+                @Override public void onScanResult(int type, android.bluetooth.le.ScanResult r) { bleResults++; bleDevices.add(r.getDevice().getAddress()); }
+                @Override public void onBatchScanResults(List<android.bluetooth.le.ScanResult> rs) { for (android.bluetooth.le.ScanResult r : rs) onScanResult(0, r); }
+                @Override public void onScanFailed(int code) { put("11.ble.scan", "FAILED " + code); }
+            };
+            if (scanner == null) put("11.ble.scan", "no scanner (Bluetooth off?)");
+            else scanner.startScan(bleCallback);
+        } catch (Throwable e) { put("11.ble.scan", "ERR " + e); }
+
         WifiManager wifi = getSystemService(WifiManager.class);
         try { wifi.startScan(); } catch (Throwable ignored) {}
         TelephonyManager tm = getSystemService(TelephonyManager.class);
@@ -169,6 +204,10 @@ public class ProbeActivity extends Activity {
     private void finish(LocationManager lm, WifiManager wifi, TelephonyManager tm) {
         put("5.gnss", "callbacks=" + gnssCallbacks + " " + gnssSummary);
         put("6.nmea", "count=" + nmeaCount + " sample=" + nmeaSample);
+        if (!results.containsKey("11.ble.scan")) {
+            put("11.ble.scan", "results=" + bleResults + " devices=" + bleDevices.size() + " " + bleDevices);
+            try { getSystemService(android.bluetooth.BluetoothManager.class).getAdapter().getBluetoothLeScanner().stopScan(bleCallback); } catch (Throwable ignored) {}
+        }
         if (!results.containsKey("5.gnssRaw")) put("5.gnssRaw", "measurements=" + measurementCount + " " + measurementSample + " navMessages=" + navCount);
         try {
             List<ScanResult> scans = wifi.getScanResults();
