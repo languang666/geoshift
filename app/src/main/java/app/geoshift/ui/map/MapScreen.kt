@@ -57,6 +57,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import app.geoshift.ui.settings.MapKeyDialog
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -123,6 +124,7 @@ fun MapScreen(
     var saveDialog by remember { mutableStateOf<String?>(null) }
     var routeDialog by remember { mutableStateOf(false) }
     var mapMenu by remember { mutableStateOf(false) }
+    var keyDialog by remember { mutableStateOf(false) }
     var searchGeneration by remember { mutableIntStateOf(0) }
     var addressGeneration by remember { mutableIntStateOf(0) }
     val camera = remember { MapCamera(r.position) }
@@ -158,6 +160,7 @@ fun MapScreen(
             roadPath = null; roadError = e.message ?: "道路规划失败"; roadBusy = false
         }
     }
+    var tipDismissed by remember { mutableStateOf(PortalStore.mapTipDismissed(appContext)) }
     val road = profile != RoadProfile.STRAIGHT && roadPath != null
     val editRoute = if (road) roadPath!! else waypoints
     val editAnchors = if (road) waypoints else emptyList()
@@ -230,6 +233,13 @@ fun MapScreen(
                         }) { search(keyword, camera.target) }
                     }, onClear = { query = ""; searchGeneration++; results = emptyList() })
                 }
+            }
+            AnimatedVisibility(!tipDismissed && !editing && results.isEmpty()) {
+                MapTip(
+                    onSwitch = { mapMenu = true },
+                    onKey = { keyDialog = true },
+                    onClose = { tipDismissed = true; PortalStore.dismissMapTip(appContext) },
+                )
             }
             AnimatedVisibility(results.isNotEmpty() && !editing) {
                 Surface(Modifier.padding(top = 8.dp).fillMaxWidth(), shape = RoundedCornerShape(20.dp), shadowElevation = 4.dp,
@@ -358,6 +368,14 @@ fun MapScreen(
         )
     }
 
+    if (keyDialog) MapKeyDialog(configured = s.settings.mapKeyConfigured, onDismiss = { keyDialog = false }, onMessage = vm::toast,
+        onTest = { vm.run<String>(onDone = vm::toast) { checkMapKey() } },
+        onSave = { key ->
+            vm.run(if (key.isEmpty()) "已清除高德 Key" else "高德 Key 已保存，搜索和地址将使用高德数据") {
+                saveSettings(JSONObject().put("mapKey", key))
+            }
+        })
+
     saveDialog?.let { suggestion ->
         val p = selected
         InputDialog("添加到历史", initial = suggestion.ifEmpty { "未命名位置" }, label = "名称",
@@ -375,6 +393,26 @@ fun MapScreen(
             hint = (if (kind == RoadProfile.STRAIGHT) "共 ${via.size} 个点" else "沿道路${kind.label} · ${via.size} 个途经点") + " · ${formatDistance(routeLength(points))}路线",
             onDismiss = { routeDialog = false }) { name ->
             vm.run<String>("路线保存成功", onDone = { editing = false; draft.clear() }) { saveRoute(name, points, via, kind) }
+        }
+    }
+}
+
+/** Small dismissible hint for when the map stays blank (blocked tile server, network, region). */
+@Composable
+private fun MapTip(onSwitch: () -> Unit, onKey: () -> Unit, onClose: () -> Unit) {
+    val link = MaterialTheme.typography.labelMedium
+    Surface(Modifier.padding(top = 6.dp), shape = RoundedCornerShape(50), shadowElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)) {
+        Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("地图不显示？", style = link, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("换个图层", style = link, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable(onClick = onSwitch).padding(horizontal = 4.dp, vertical = 6.dp))
+            Text("·", style = link, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("填写高德 Key", style = link, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable(onClick = onKey).padding(horizontal = 4.dp, vertical = 6.dp))
+            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Rounded.Close, "关闭提示，不再显示", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

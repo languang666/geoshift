@@ -142,7 +142,7 @@ public final class PortalStore {
                     "backend", "android_mock", "interval", 1000, "speedMultiplier", 1, "speedMode", "walk",
                     "accuracy", 5, "altitude", 0, "jitter", false, "enhanced", true, "secondReport", false,
                     "debug", false, "privacyAccepted", false, "theme", "system", "allowedPackages", "",
-                    "gnssEnabled", false, "satelliteCount", 12, "mapSource", "osm", "protectWifi", false,
+                    "gnssEnabled", false, "satelliteCount", 12, "mapSource", "amap", "protectWifi", false,
                     "spoofEnvironment", true);
             merge(value, parse(preferences(c).getString("settings", "{}")));
             value.remove("mapKey");
@@ -169,6 +169,15 @@ public final class PortalStore {
         editor.apply();
         settingsCache = null;
         pushToSystem(c);
+    }
+
+    /** Whether the map tip ("map not showing? switch layers") was closed by the user. */
+    public static boolean mapTipDismissed(Context c) {
+        return preferences(c).getBoolean("mapTipDismissed", false);
+    }
+
+    public static void dismissMapTip(Context c) {
+        preferences(c).edit().putBoolean("mapTipDismissed", true).apply();
     }
 
     /** Last way of drawing routes chosen in the route editor (straight / foot / bike / car). */
