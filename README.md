@@ -51,11 +51,15 @@ EMULATOR=1 ./build-release.sh   # 额外打包 x86_64 原生库，产出 Geoshif
 
 ```
 app/src/main/java/app/geoshift/
-  *.java                 底层：模拟服务、摇杆、LSPosed hook、扫描、地图网络、坐标算法
+  *.java                 底层：模拟服务、摇杆、LSPosed hook（系统框架 / 电话服务 / 蓝牙）、扫描、地图网络、坐标算法
   MainActivity.kt        Compose 入口、权限申请、备份导入导出
-  data/                  PortalState（类型化状态）、PortalActions（全部业务操作与校验）
-  ui/                    PortalApp（导航）、map/ history/ mock/ settings/ setup/ 各页面、theme/、components/
+  data/                  PortalState（类型化状态）、PortalActions（全部业务操作与校验）、
+                         RoadRouter（沿道路路线）、OpenGeocoder（免 Key 搜索与地址）
+  ui/                    PortalApp（导航）、map/（VectorMap：MapLibre 图层；OsmMap：OSM 默认图层）、
+                         history/ mock/ settings/ setup/ 各页面、theme/、components/
 tests/GeoChecks.java     坐标算法与地图切换坐标回归测试
+tests/bridge/            系统 hook 逻辑回归（API 替身，run-bridge-checks.sh）
+tests/probe/             探针应用 GeoProbe：以普通应用身份读取全部定位线索，logcat 标签 GEOPROBE
 ```
 
 坐标回归测试（无需 Android 或网络）：
