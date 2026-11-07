@@ -128,7 +128,8 @@ fun MapScreen(
     val camera = remember { MapCamera(r.position) }
     var bottomCardHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    val vectorMap = s.settings.mapSource == MapSource.VECTOR
+    // Everything but the plain OpenStreetMap layer is drawn by MapLibre (sharper, rotatable).
+    val vectorMap = s.settings.mapSource != MapSource.DEFAULT
     val focus = LocalFocusManager.current
 
     // Road routes: each section between tapped points is snapped to roads in the background.
@@ -182,7 +183,7 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled,
             selected = if (editing) null else selected, route = if (editing) editRoute else r.route,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
-            online = s.settings.privacyAccepted, dark = isDark(s.settings.theme),
+            online = s.settings.privacyAccepted, dark = isDark(s.settings.theme), source = s.settings.mapSource,
             camera = camera, center = centerRequest,
             onTap = { p -> if (editing) draft.add(p) else select(p) },
             onLongPress = { p -> if (!editing) select(p) },

@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import app.geoshift.MapSource
 import app.geoshift.data.LatLon
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -40,11 +41,32 @@ private const val DARK_STYLE = "https://tiles.openfreemap.org/styles/dark"
 /** Shown before online maps are allowed: no network requests at all. */
 private const val OFFLINE_STYLE = """{"version":8,"sources":{},"layers":[{"id":"bg","type":"background","paint":{"background-color":"#E9ECF2"}}]}"""
 
+private fun amapUrls(query: String) = (1..4).joinToString(",") {
+    "\"https://wprd0$it.is.autonavi.com/appmaptile?lang=zh_cn&$query&x={x}&y={y}&z={z}\""
+}
+
+/** Inverts a light raster map for dark mode while keeping its hues (as the osmdroid layer does). */
+private fun darkRaster(dark: Boolean) = if (!dark) "{}" else
+    """{"raster-brightness-min":0.92,"raster-brightness-max":0.08,"raster-hue-rotate":180,"raster-saturation":-0.6,"raster-contrast":-0.1}"""
+
+/**
+ * AMap road map, sharp on dense screens: tiles of the next zoom level drawn at 128 dp (what AMap's
+ * own web map does on high-density screens), instead of 256-pixel tiles stretched 2-3x. GCJ-02.
+ */
+private fun amapStyle(dark: Boolean) = """{"version":8,
+  "sources":{"amap":{"type":"raster","tiles":[${amapUrls("size=1&scl=1&style=7")}],"tileSize":128,"minzoom":3,"maxzoom":19}},
+  "layers":[
+    {"id":"bg","type":"background","paint":{"background-color":"${if (dark) "#1B1E27" else "#F5F3EE"}"}},
+    {"id":"amap","type":"raster","source":"amap","paint":${darkRaster(dark)}}]}"""
+
+/** Esri World Imagery, next zoom level drawn at 128 dp: twice the detail of plain 256-pixel tiles. */
+private const val SATELLITE_STYLE = """{"version":8,
+  "sources":{"esri":{"type":"raster","tiles":["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],"tileSize":128,"minzoom":3,"maxzoom":19}},
+  "layers":[{"id":"bg","type":"background","paint":{"background-color":"#1B1E27"}},{"id":"esri","type":"raster","source":"esri"}]}"""
+
 // MapLibre zoom counts 512-pixel tiles, osmdroid 256-pixel tiles: one level apart for the same scale.
 private fun toVectorZoom(zoom: Double) = zoom - 1
 private fun fromVectorZoom(zoom: Double) = zoom + 1
-private fun LatLon.latLng() = LatLng(lat, lon)
-private fun LatLon.point(): Point = Point.fromLngLat(lon, lat)
 
 @Composable
 fun VectorMap(
@@ -57,6 +79,7 @@ fun VectorMap(
     anchors: List<LatLon>,
     online: Boolean,
     dark: Boolean,
+    source: MapSource,
     camera: MapCamera,
     center: CenterRequest?,
     onTap: (LatLon) -> Unit,
@@ -107,15 +130,24 @@ fun VectorMap(
         camera.zoom = zoom
         layers.animateTo(request.target, zoom)
     }
-    LaunchedEffect(online, dark, layers) {
+    LaunchedEffect(online, dark, source, layers) {
         MapLibre.setConnected(online)
-        layers.style(if (!online) null else if (dark) DARK_STYLE else LIGHT_STYLE)
+        val spec = when {
+            !online -> StyleSpec(null, OFFLINE_STYLE)
+            source == MapSource.AMAP -> StyleSpec(null, amapStyle(dark))
+            source == MapSource.SATELLITE -> StyleSpec(null, SATELLITE_STYLE)
+            else -> StyleSpec(if (dark) DARK_STYLE else LIGHT_STYLE, null)
+        }
+        layers.style(spec, if (online) source else MapSource.VECTOR)
     }
     LaunchedEffect(route, routeEditing, anchors, layers) { layers.route(route, routeEditing, anchors) }
     AndroidView(factory = { view }, modifier = modifier) {
         layers.markers(virtual, simulating, selected)
     }
 }
+
+/** A style given by URL or by inline JSON. */
+private data class StyleSpec(val url: String?, val json: String?)
 
 private class VectorLayers(
     context: Context,
@@ -130,7 +162,14 @@ private class VectorLayers(
     private val pinIcon = pinDrawable(context).bitmap
     private var map: MapLibreMap? = null
     private var style: Style? = null
-    private var styleUrl: String? = "unset"
+    private var spec: StyleSpec? = null
+    private var pendingSource = MapSource.VECTOR
+    /** Coordinate system of the current style: GCJ-02 for AMap, WGS-84 otherwise. Stored data stays WGS-84. */
+    private var source = MapSource.VECTOR
+
+    private fun LatLon.latLng() = source.toDisplay(lat, lon).let { LatLng(it[0], it[1]) }
+    private fun LatLon.point(): Point = source.toDisplay(lat, lon).let { Point.fromLngLat(it[1], it[0]) }
+    private fun LatLng.stored(): LatLon = source.toWgs(latitude, longitude).let { LatLon(it[0], it[1]) }
 
     // Latest data, re-applied whenever a style finishes loading.
     private var virtual: LatLon = camera.target
@@ -156,26 +195,37 @@ private class VectorLayers(
             }
             m.cameraPosition = CameraPosition.Builder().target(camera.target.latLng()).zoom(toVectorZoom(camera.zoom)).build()
             m.addOnCameraMoveListener {
+                if (switching) return@addOnCameraMoveListener
                 val p = m.cameraPosition
-                p.target?.let { camera.target = LatLon(it.latitude, it.longitude) }
+                p.target?.let { camera.target = it.stored() }
                 camera.zoom = fromVectorZoom(p.zoom)
             }
-            m.addOnMapClickListener { onTap(LatLon(it.latitude, it.longitude)); true }
-            m.addOnMapLongClickListener { onLongPress(LatLon(it.latitude, it.longitude)); true }
-            val pending = styleUrl
-            styleUrl = "unset"
-            if (pending != "unset") style(pending)
+            m.addOnMapClickListener { onTap(it.stored()); true }
+            m.addOnMapLongClickListener { onLongPress(it.stored()); true }
+            val pending = spec
+            spec = null
+            if (pending != null) style(pending, pendingSource)
         }
     }
 
-    fun style(url: String?) {
-        if (url == styleUrl) return
-        styleUrl = url
+    private var switching = false
+
+    fun style(next: StyleSpec, nextSource: MapSource) {
+        if (next == spec) return
+        spec = next
+        pendingSource = nextSource
         val m = map ?: return
         style = null
-        val builder = if (url == null) Style.Builder().fromJson(OFFLINE_STYLE) else Style.Builder().fromUri(url)
+        if (nextSource != source) {
+            // Same place on the ground, expressed in the new style's coordinate system.
+            source = nextSource
+            switching = true
+            m.moveCamera(CameraUpdateFactory.newLatLng(camera.target.latLng()))
+            switching = false
+        }
+        val builder = if (next.url != null) Style.Builder().fromUri(next.url) else Style.Builder().fromJson(next.json!!)
         m.setStyle(builder) { loaded ->
-            if (styleUrl != url) return@setStyle
+            if (spec != next) return@setStyle
             chineseLabels(loaded)
             addOverlay(loaded)
             style = loaded
