@@ -195,10 +195,16 @@ class PortalActions(context: Context) {
         saveRecord("locations", row)
     }
 
-    fun saveRoute(name: String, points: List<LatLon>): String {
+    /** points are what playback follows; waypoints and profile record how a road route was drawn. */
+    fun saveRoute(name: String, points: List<LatLon>, waypoints: List<LatLon> = points, profile: RoadProfile = RoadProfile.STRAIGHT): String {
         val array = JSONArray().apply { points.forEach { put(it.toJson()) } }
         validateRoute(array)
-        return saveRecord("routes", PortalStore.obj("name", name, "points", array))
+        val route = PortalStore.obj("name", name, "points", array)
+        if (profile != RoadProfile.STRAIGHT) {
+            route.put("profile", profile.id)
+            route.put("waypoints", JSONArray().apply { waypoints.forEach { put(it.toJson()) } })
+        }
+        return saveRecord("routes", route)
     }
 
     fun delete(key: String, id: String) = synchronized(RECORD_LOCK) {

@@ -199,12 +199,17 @@ data class SavedLocation(val id: String, val name: String, val position: LatLon,
     }
 }
 
-data class SavedRoute(val id: String, val name: String, val points: List<LatLon>, val createdAt: Long) {
+data class SavedRoute(val id: String, val name: String, val points: List<LatLon>, val createdAt: Long,
+                      val profile: RoadProfile = RoadProfile.STRAIGHT, val waypointCount: Int = points.size) {
     val length: Double by lazy { routeLength(points) }
 
     companion object {
-        fun from(o: JSONObject) = SavedRoute(
-            o.optString("id"), o.optString("name"), o.optJSONArray("points").objects().map(LatLon::from), o.optLong("createdAt"))
+        fun from(o: JSONObject): SavedRoute {
+            val points = o.optJSONArray("points").objects().map(LatLon::from)
+            val profile = RoadProfile.from(o.optString("profile"))
+            return SavedRoute(o.optString("id"), o.optString("name"), points, o.optLong("createdAt"), profile,
+                if (profile == RoadProfile.STRAIGHT) points.size else o.optJSONArray("waypoints")?.length() ?: points.size)
+        }
     }
 }
 

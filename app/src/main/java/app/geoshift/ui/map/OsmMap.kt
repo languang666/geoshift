@@ -86,6 +86,7 @@ fun OsmMap(
     route: List<LatLon>,
     routeEditing: Boolean,
     online: Boolean,
+    anchors: List<LatLon> = emptyList(),
     dark: Boolean,
     source: MapSource,
     camera: MapCamera,
@@ -100,6 +101,7 @@ fun OsmMap(
     val renderedSource = remember { arrayOf(source) }
     val switching = remember { booleanArrayOf(false) }
     val routePoints = remember(route, source) { route.map { source.display(it) } }
+    val anchorPoints = remember(anchors, source) { anchors.map { source.display(it) } }
 
     val mapView = remember {
         MapView(context).apply {
@@ -205,6 +207,7 @@ fun OsmMap(
         selected?.let { selectedMarker.position = source.display(it) }
         routeOverlay.points = routePoints
         routeOverlay.editing = routeEditing
+        routeOverlay.anchors = anchorPoints
         mv.invalidate()
     }
 }
@@ -213,6 +216,8 @@ fun OsmMap(
 private class RouteOverlay(context: Context) : Overlay() {
     var points: List<GeoPoint> = emptyList()
     var editing = false
+    /** Tapped points of a road route; drawn instead of every vertex of the road line. */
+    var anchors: List<GeoPoint> = emptyList()
     private val density = context.resources.displayMetrics.density
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = 5 * density; color = INDIGO
@@ -238,12 +243,14 @@ private class RouteOverlay(context: Context) : Overlay() {
             canvas.drawPath(path, casing)
             canvas.drawPath(path, line)
         }
-        val showVertices = editing || pixels.size <= 60
-        if (showVertices) {
-            for ((x, y) in pixels) {
-                canvas.drawCircle(x, y, 4.5f * density, dot)
-                canvas.drawCircle(x, y, 4.5f * density, dotRing)
-            }
+        val vertices = when {
+            anchors.isNotEmpty() -> anchors.map { projection.toPixels(it, point); Pair(point.x.toFloat(), point.y.toFloat()) }
+            editing || pixels.size <= 60 -> pixels
+            else -> emptyList()
+        }
+        for ((x, y) in vertices) {
+            canvas.drawCircle(x, y, 4.5f * density, dot)
+            canvas.drawCircle(x, y, 4.5f * density, dotRing)
         }
         val (sx, sy) = pixels.first()
         endFill.color = 0xFF1FA971.toInt()

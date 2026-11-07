@@ -45,6 +45,7 @@ fun AmapMap(
     route: List<LatLon>,
     routeEditing: Boolean,
     dark: Boolean,
+    anchors: List<LatLon> = emptyList(),
     keyRevision: Long,
     camera: MapCamera,
     center: CenterRequest?,
@@ -116,7 +117,7 @@ fun AmapMap(
         camera.zoom = zoom
         layers.map.animateCamera(CameraUpdateFactory.newLatLngZoom(request.target.nativePoint(), zoom.toFloat()), 500L, null)
     }
-    LaunchedEffect(route, routeEditing, layers) { layers.route(route, routeEditing) }
+    LaunchedEffect(route, routeEditing, anchors, layers) { layers.route(route, routeEditing, anchors) }
     AndroidView(factory = { view }, modifier = modifier) {
         layers.map.uiSettings.setLogoBottomMargin(logoBottomMargin)
         val type = if (dark) AMap.MAP_TYPE_NIGHT else AMap.MAP_TYPE_NORMAL
@@ -140,6 +141,7 @@ private class NativeLayers(context: Context, val view: TextureMapView, private v
     private var ready = false
     private var lastRoute: List<LatLon> = emptyList()
     private var lastEditing = false
+    private var lastAnchors: List<LatLon> = emptyList()
     private val vertexIcon = BitmapDescriptorFactory.fromBitmap(Bitmap.createScaledBitmap(dotDrawable(context, true).bitmap,
         (14 * context.resources.displayMetrics.density).toInt(), (14 * context.resources.displayMetrics.density).toInt(), true))
 
@@ -178,18 +180,19 @@ private class NativeLayers(context: Context, val view: TextureMapView, private v
         val zoom = camera.zoom.toFloat()
         ready = true
         map.moveCamera(CameraUpdateFactory.newLatLngZoom(target, zoom))
-        route(lastRoute, lastEditing)
+        route(lastRoute, lastEditing, lastAnchors)
     }
 
-    fun route(points: List<LatLon>, editing: Boolean) {
+    fun route(points: List<LatLon>, editing: Boolean, anchors: List<LatLon> = emptyList()) {
         lastRoute = points
         lastEditing = editing
+        lastAnchors = anchors
         vertices.forEach { it.remove() }
         vertices.clear()
         line.points = points.map { it.nativePoint() }
         line.isVisible = points.size >= 2
         points.forEachIndexed { index, point ->
-            if (index == 0 || index == points.lastIndex || (editing && points.size <= 200)) {
+            if (index == 0 || index == points.lastIndex || (anchors.isEmpty() && editing && points.size <= 200)) {
                 val icon = when (index) {
                     0 -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)
                     points.lastIndex -> BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
@@ -198,6 +201,11 @@ private class NativeLayers(context: Context, val view: TextureMapView, private v
                 vertices.add(map.addMarker(MarkerOptions().position(point.nativePoint()).icon(icon)
                     .anchor(0.5f, if (index == 0 || index == points.lastIndex) 1f else 0.5f).infoWindowEnable(false).zIndex(5f)))
             }
+        }
+        if (points.size >= 2) anchors.forEachIndexed { index, point ->
+            if (index == 0 || index == anchors.lastIndex) return@forEachIndexed
+            vertices.add(map.addMarker(MarkerOptions().position(point.nativePoint()).icon(vertexIcon)
+                .anchor(0.5f, 0.5f).infoWindowEnable(false).zIndex(5f)))
         }
     }
 }

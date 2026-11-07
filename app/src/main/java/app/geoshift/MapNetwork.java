@@ -104,4 +104,41 @@ public final class MapNetwork {
         JSONObject regeo = answer.optJSONObject("regeocode");
         return PortalStore.obj("address", regeo == null ? "" : regeo.optString("formatted_address"));
     }
+
+    /**
+     * Road path between two WGS-84 points from AMap route planning, as WGS-84 [lat, lon] pairs.
+     * profile: foot / bike / car.
+     */
+    public static java.util.List<double[]> direction(Context c, String profile, double aLat, double aLon, double bLat, double bLon) throws Exception {
+        if (!Geo.valid(aLat, aLon) || !Geo.valid(bLat, bLon)) throw new Exception("经纬度无效。");
+        double[] a = Geo.wgs84ToGcj02(aLat, aLon), b = Geo.wgs84ToGcj02(bLat, bLon);
+        String od = "origin=" + encode(a[1] + "," + a[0]) + "&destination=" + encode(b[1] + "," + b[0]);
+        String path;
+        switch (profile) {
+            case "car": path = "/v3/direction/driving"; od += "&extensions=base"; break;
+            case "bike": path = "/v5/direction/bicycling"; od += "&show_fields=polyline"; break;
+            default: path = "/v3/direction/walking";
+        }
+        JSONObject route = get(c, path, od).optJSONObject("route");
+        JSONArray paths = route == null ? null : route.optJSONArray("paths");
+        JSONObject first = paths == null ? null : paths.optJSONObject(0);
+        JSONArray steps = first == null ? null : first.optJSONArray("steps");
+        java.util.List<double[]> out = new java.util.ArrayList<>();
+        if (steps != null) {
+            for (int i = 0; i < steps.length(); i++) {
+                JSONObject step = steps.optJSONObject(i);
+                if (step == null) continue;
+                for (String pair : step.optString("polyline").split(";")) {
+                    String[] v = pair.split(",");
+                    if (v.length != 2) continue;
+                    try {
+                        double[] w = Geo.gcj02ToWgs84(Double.parseDouble(v[1]), Double.parseDouble(v[0]));
+                        out.add(w);
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+        }
+        if (out.size() < 2) throw new Exception("高德没有找到这两点之间的道路，可改用直线连接。");
+        return out;
+    }
 }

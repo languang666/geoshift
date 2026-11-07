@@ -96,6 +96,13 @@ import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.isDark
 import app.geoshift.ui.settings.MapKeyDialog
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.platform.LocalContext
+import app.geoshift.data.RoadProfile
+import app.geoshift.data.RoadRouter
 
 @Composable
 fun MapScreen(
@@ -132,6 +139,36 @@ fun MapScreen(
     }
     val focus = LocalFocusManager.current
 
+    // Road routes: each section between tapped points is snapped to roads in the background.
+    val appContext = LocalContext.current.applicationContext
+    val router = remember { RoadRouter(appContext) }
+    var profileId by rememberSaveable { mutableStateOf(RoadProfile.STRAIGHT.id) }
+    val profile = RoadProfile.from(profileId)
+    var roadPath by remember { mutableStateOf<List<LatLon>?>(null) }
+    var roadError by remember { mutableStateOf<String?>(null) }
+    var roadBusy by remember { mutableStateOf(false) }
+    val waypoints = draft.toList()
+    LaunchedEffect(waypoints, profile, editing) {
+        roadError = null
+        if (!editing || profile == RoadProfile.STRAIGHT || waypoints.size < 2) {
+            roadPath = null; roadBusy = false; return@LaunchedEffect
+        }
+        roadBusy = true
+        delay(300)
+        try {
+            val sections = withContext(Dispatchers.IO) { waypoints.zipWithNext { a, b -> router.section(profile, a, b) } }
+            roadPath = RoadRouter.join(sections)
+            roadBusy = false
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            roadPath = null; roadError = e.message ?: "道路规划失败"; roadBusy = false
+        }
+    }
+    val road = profile != RoadProfile.STRAIGHT && roadPath != null
+    val editRoute = if (road) roadPath!! else waypoints
+    val editAnchors = if (road) waypoints else emptyList()
+
     // Reverse-geocode the selected point when a map key is configured.
     LaunchedEffect(selected, s.settings.mapKeyConfigured, s.settings.privacyAccepted) {
         val generation = ++addressGeneration
@@ -151,8 +188,8 @@ fun MapScreen(
     Box(Modifier.fillMaxSize()) {
         if (nativeMap) AmapMap(
             modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled,
-            selected = if (editing) null else selected, route = if (editing) draft.toList() else r.route,
-            routeEditing = editing, dark = isDark(s.settings.theme), keyRevision = s.settings.amapAndroidKeyRevision,
+            selected = if (editing) null else selected, route = if (editing) editRoute else r.route,
+            routeEditing = editing, anchors = if (editing) editAnchors else emptyList(), dark = isDark(s.settings.theme), keyRevision = s.settings.amapAndroidKeyRevision,
             camera = camera, center = centerRequest, logoBottomMargin = bottomCardHeight + with(density) { 8.dp.roundToPx() },
             onTap = { p -> if (editing) draft.add(p) else select(p) },
             onLongPress = { p -> if (!editing) select(p) },
@@ -162,8 +199,9 @@ fun MapScreen(
             virtual = r.position,
             simulating = r.enabled,
             selected = if (editing) null else selected,
-            route = if (editing) draft.toList() else r.route,
+            route = if (editing) editRoute else r.route,
             routeEditing = editing,
+            anchors = if (editing) editAnchors else emptyList(),
             online = s.settings.privacyAccepted,
             dark = isDark(s.settings.theme),
             source = s.settings.mapSource,
@@ -238,7 +276,9 @@ fun MapScreen(
 
         // ---- Right: floating tools ----
         Column(
-            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
+            // Centred between the top bar and the bottom card, so neither covers a tool.
+            Modifier.align(Alignment.CenterEnd).statusBarsPadding()
+                .padding(top = 72.dp, end = 12.dp, bottom = with(density) { bottomCardHeight.toDp() }),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box {
@@ -296,10 +336,27 @@ fun MapScreen(
             when (m) {
                 2 -> RouteEditorCard(
                     count = draft.size,
-                    length = routeLength(draft),
+                    length = routeLength(editRoute),
+                    profile = profile,
+                    roadStatus = when {
+                        profile == RoadProfile.STRAIGHT -> null
+                        draft.size < 2 -> "点选途经点，路线会沿${router.source}道路连接"
+                        roadBusy -> "正在沿道路规划…"
+                        roadError != null -> roadError
+                        else -> "已沿${router.source}道路连接"
+                    },
+                    roadFailed = roadError != null,
+                    onProfile = { profileId = it.id },
                     onUndo = { if (draft.isNotEmpty()) draft.removeAt(draft.lastIndex) },
                     onClear = { draft.clear() },
-                    onSave = { if (draft.size < 2) vm.toast("请至少选择两个路线点") else routeDialog = true },
+                    onSave = {
+                        when {
+                            draft.size < 2 -> vm.toast("请至少选择两个路线点")
+                            profile != RoadProfile.STRAIGHT && roadBusy -> vm.toast("道路还在规划，请稍候")
+                            profile != RoadProfile.STRAIGHT && roadPath == null -> vm.toast(roadError ?: "道路规划失败，可改用直线")
+                            else -> routeDialog = true
+                        }
+                    },
                     onClose = { editing = false; draft.clear() },
                 )
                 1 -> if (sel != null) PreviewCard(
@@ -346,10 +403,14 @@ fun MapScreen(
         }
     }
     if (routeDialog) {
-        InputDialog("保存路线", initial = "路线 ${draft.size} 点", label = "名称", hint = "共 ${draft.size} 个点 · ${formatDistance(routeLength(draft))}路线",
+        val points = editRoute
+        val via = waypoints
+        val kind = profile
+        val title = if (kind == RoadProfile.STRAIGHT) "路线 ${via.size} 点" else "${kind.label}路线 ${formatDistance(routeLength(points))}"
+        InputDialog("保存路线", initial = title, label = "名称",
+            hint = (if (kind == RoadProfile.STRAIGHT) "共 ${via.size} 个点" else "沿道路${kind.label} · ${via.size} 个途经点") + " · ${formatDistance(routeLength(points))}路线",
             onDismiss = { routeDialog = false }) { name ->
-            val points = draft.toList()
-            vm.run<String>("路线保存成功", onDone = { editing = false; draft.clear() }) { saveRoute(name, points) }
+            vm.run<String>("路线保存成功", onDone = { editing = false; draft.clear() }) { saveRoute(name, points, via, kind) }
         }
     }
 }
@@ -486,8 +547,12 @@ private fun PreviewCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RouteEditorCard(count: Int, length: Double, onUndo: () -> Unit, onClear: () -> Unit, onSave: () -> Unit, onClose: () -> Unit) {
+private fun RouteEditorCard(
+    count: Int, length: Double, profile: RoadProfile, roadStatus: String?, roadFailed: Boolean,
+    onProfile: (RoadProfile) -> Unit, onUndo: () -> Unit, onClear: () -> Unit, onSave: () -> Unit, onClose: () -> Unit,
+) {
     BottomCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -496,7 +561,15 @@ private fun RouteEditorCard(count: Int, length: Double, onUndo: () -> Unit, onCl
             }
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "退出编辑") }
         }
-        Spacer(Modifier.size(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RoadProfile.entries.forEach { p ->
+                FilterChip(selected = p == profile, onClick = { onProfile(p) }, label = { Text(p.label) })
+            }
+        }
+        if (roadStatus != null) Text(roadStatus, style = MaterialTheme.typography.bodySmall,
+            color = if (roadFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.size(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = onUndo, enabled = count > 0) {
                 Icon(Icons.AutoMirrored.Rounded.Undo, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("撤销")
