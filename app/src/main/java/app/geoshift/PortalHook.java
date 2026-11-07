@@ -175,7 +175,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
         if (!installed.add("__phone_hooks__")) return;
         int hooks = 0;
         Set<Class<?>> seen = new java.util.HashSet<>();
-        for (String className : new String[]{"com.android.phone.PhoneInterfaceManager", "com.android.phone.HwPhoneInterfaceManager"})
+        for (String className : new String[]{"com.android.phone.PhoneInterfaceManager", "com.android.phone.HwPhoneInterfaceManager"}) {
         for (ClassLoader loader : loaders) {
             Class<?> type = XposedHelpers.findClassIfExists(className, loader);
             if (type == null || !seen.add(type)) continue;
@@ -221,6 +221,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
             };
             for (String name : new String[]{"requestCellInfoUpdate", "requestCellInfoUpdateWithWorkSource"})
                 hooks += XposedBridge.hookAllMethods(type, name, update).size();
+        }
         }
         XposedBridge.log("Geoshift phone cell hooks: " + hooks);
         if (hooks == 0) installed.remove("__phone_hooks__"); // Let a later Application.attach retry.

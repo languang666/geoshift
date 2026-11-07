@@ -81,6 +81,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.geoshift.Geo
 import app.geoshift.MapSource
+import app.geoshift.PortalStore
 import org.json.JSONObject
 import app.geoshift.data.LatLon
 import app.geoshift.data.PortalActions
@@ -133,7 +134,7 @@ fun MapScreen(
     // Road routes: each section between tapped points is snapped to roads in the background.
     val appContext = LocalContext.current.applicationContext
     val router = remember { RoadRouter(appContext) }
-    var profileId by rememberSaveable { mutableStateOf(RoadProfile.STRAIGHT.id) }
+    var profileId by rememberSaveable { mutableStateOf(PortalStore.lastRoadProfile(appContext)) }
     val profile = RoadProfile.from(profileId)
     var roadPath by remember { mutableStateOf<List<LatLon>?>(null) }
     var roadError by remember { mutableStateOf<String?>(null) }
@@ -315,7 +316,7 @@ fun MapScreen(
                         else -> "已沿${router.source}道路连接"
                     },
                     roadFailed = roadError != null,
-                    onProfile = { profileId = it.id },
+                    onProfile = { profileId = it.id; PortalStore.setLastRoadProfile(appContext, it.id) },
                     onUndo = { if (draft.isNotEmpty()) draft.removeAt(draft.lastIndex) },
                     onClear = { draft.clear() },
                     onSave = {

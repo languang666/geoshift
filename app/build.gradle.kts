@@ -14,8 +14,11 @@ android {
         targetSdk = 35
         versionCode = 21
         versionName = "2.5.0"
-        // Phones are ARM; x86_64 is kept for the emulator. Native map code is per ABI.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        // Native map code is per ABI. Phones are ARM; build with -Pemulator to add x86_64 for the emulator.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            if (project.hasProperty("emulator")) abiFilters += "x86_64"
+        }
     }
 
     buildTypes {

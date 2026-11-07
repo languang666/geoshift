@@ -43,7 +43,9 @@ final class FakeEnvironment {
         List<ScanResult> list = new ArrayList<>();
         JSONObject w = wifiPreset(config);
         if (w == null) return list;
-        ScanResult result = new ScanResult();
+        // The public constructor arrived in Android 11; earlier versions have the same one hidden.
+        ScanResult result = android.os.Build.VERSION.SDK_INT >= 30 ? new ScanResult()
+                : (ScanResult) XposedHelpers.newInstance(ScanResult.class);
         result.SSID = w.optString("ssid");
         result.BSSID = w.optString("bssid").toLowerCase(java.util.Locale.ROOT);
         result.capabilities = "[WPA2-PSK-CCMP][RSN-PSK-CCMP][ESS]";

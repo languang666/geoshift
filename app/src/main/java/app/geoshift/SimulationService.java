@@ -15,7 +15,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
-import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Random;
 
@@ -105,13 +104,12 @@ public final class SimulationService extends Service {
             ensureReady(this);
             JSONObject s = PortalStore.settings(this);
             if ("START".equals(action)) {
-                JSONObject r = PortalStore.runtime(this);
+                JSONObject r = PortalStore.runtimeLight(this);
                 if ("route".equals(r.optString("mode"))) {
-                    JSONArray route = r.optJSONArray("route");
-                    if (route == null || route.length() < 2) throw new Exception("请先选择至少两个点的路线。");
-                    JSONObject first = route.getJSONObject(0);
-                    PortalStore.updateRuntime(this, PortalStore.obj("lat", first.getDouble("lat"),
-                            "lon", first.getDouble("lon"), "routeIndex", 0, "progress", 0));
+                    double[][] route = PortalStore.routeCoordinates(this);
+                    if (route[0].length < 2) throw new Exception("请先选择至少两个点的路线。");
+                    PortalStore.updateRuntime(this, PortalStore.obj("lat", route[0][0],
+                            "lon", route[1][0], "routeIndex", 0, "progress", 0));
                     segmentDistance = 0;
                 }
                 previous = 0;
@@ -203,7 +201,7 @@ public final class SimulationService extends Service {
             previous = now;
             boolean route = "route".equals(r.optString("mode"));
             if (route && !r.optBoolean("paused")) {
-                advance(PortalStore.runtimeFields(this, "route", "routeIndex"), s, dt);
+                advance(r, s, dt);
                 r = PortalStore.runtimeLight(this);
             }
             if (providers) {
@@ -224,14 +222,15 @@ public final class SimulationService extends Service {
     }
 
     private void advance(JSONObject r, JSONObject s, double dt) throws Exception {
-        JSONArray points = r.optJSONArray("route");
-        if (points == null || points.length() < 2) throw new Exception("当前路线无效。");
-        int last = points.length() - 1;
+        double[][] route = PortalStore.routeCoordinates(this);
+        double[] lats = route[0], lons = route[1];
+        if (lats.length < 2) throw new Exception("当前路线无效。");
+        int last = lats.length - 1;
         int index = Math.max(0, r.optInt("routeIndex", 0));
         double speed = PortalStore.speed(s);
         double remaining = speed * dt;
         while (index < last) {
-            double length = segmentLength(points, index);
+            double length = Geo.distance(lats[index], lons[index], lats[index + 1], lons[index + 1]);
             if (length < 0.01 || segmentDistance + remaining >= length) {
                 remaining = Math.max(0, remaining - (length - segmentDistance));
                 segmentDistance = 0;
@@ -242,25 +241,18 @@ public final class SimulationService extends Service {
             break;
         }
         if (index >= last) {
-            JSONObject end = points.getJSONObject(last);
-            PortalStore.updateRuntime(this, PortalStore.obj("lat", end.getDouble("lat"), "lon", end.getDouble("lon"),
+            PortalStore.updateRuntime(this, PortalStore.obj("lat", lats[last], "lon", lons[last],
                     "routeIndex", index, "progress", 1, "paused", true, "speed", 0));
             PortalStore.log(this, "路线已完成，保持终点位置；可手动停止定位服务。");
             return;
         }
-        JSONObject a = points.getJSONObject(index), b = points.getJSONObject(index + 1);
-        double aLat = a.getDouble("lat"), aLon = a.getDouble("lon"), bLat = b.getDouble("lat"), bLon = b.getDouble("lon");
+        double aLat = lats[index], aLon = lons[index], bLat = lats[index + 1], bLon = lons[index + 1];
         double length = Geo.distance(aLat, aLon, bLat, bLon);
         double fraction = length < 0.01 ? 0 : segmentDistance / length;
         double[] p = Geo.interpolate(aLat, aLon, bLat, bLon, fraction);
         PortalStore.updateRuntime(this, PortalStore.obj("lat", p[0], "lon", p[1],
                 "bearing", Geo.bearing(aLat, aLon, bLat, bLon), "speed", speed,
                 "routeIndex", index, "progress", (index + fraction) / last));
-    }
-
-    private static double segmentLength(JSONArray points, int index) throws Exception {
-        JSONObject a = points.getJSONObject(index), b = points.getJSONObject(index + 1);
-        return Geo.distance(a.getDouble("lat"), a.getDouble("lon"), b.getDouble("lat"), b.getDouble("lon"));
     }
 
     private void emit(JSONObject r, JSONObject s) throws Exception {

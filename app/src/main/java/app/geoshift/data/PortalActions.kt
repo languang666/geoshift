@@ -159,6 +159,17 @@ class PortalActions(context: Context) {
         val first = points.getJSONObject(0)
         PortalStore.updateRuntime(c, PortalStore.obj("route", points, "routeId", id, "routeName", route.optString("name"),
             "routeIndex", 0, "progress", 0, "lat", first.getDouble("lat"), "lon", first.getDouble("lon"), "mode", "route"))
+        // A road route drawn for driving should play at driving speed, and so on.
+        val speed = when (RoadProfile.from(route.optString("profile"))) {
+            RoadProfile.FOOT -> SpeedMode.WALK
+            RoadProfile.BIKE -> SpeedMode.BIKE
+            RoadProfile.CAR -> SpeedMode.DRIVE
+            RoadProfile.STRAIGHT -> null
+        }
+        if (speed != null && PortalStore.settings(c).optString("speedMode") != speed.key) {
+            PortalStore.updateSettings(c, PortalStore.obj("speedMode", speed.key))
+            PortalStore.log(c, "按路线出行方式切换为${speed.label}速度（${speed.metresPerSecond} m/s）")
+        }
     }
 
     fun startRoute(id: String? = null) {
@@ -167,8 +178,7 @@ class PortalActions(context: Context) {
             selectRoute(id)
         }
         SimulationService.ensureReady(c)
-        val route = PortalStore.runtimeFields(c, "route").optJSONArray("route")
-        if (route == null || route.length() < 2) fail("请先选择一条路线")
+        if (PortalStore.routeCoordinates(c)[0].size < 2) fail("请先选择一条路线")
         PortalStore.updateRuntime(c, PortalStore.obj("mode", "route"))
         SimulationService.command(c, "START")
     }

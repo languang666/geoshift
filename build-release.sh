@@ -6,9 +6,10 @@ export ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
 BT="$ANDROID_HOME/build-tools/35.0.0"
 KEYS="${PORTAL_KEYS:-$HOME/.geoshift-signing}"
 VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
-OUT="Geoshift-$VERSION.apk"
+OUT="Geoshift-$VERSION${EMULATOR:+-emulator}.apk"
 
-./gradlew --no-daemon -q assembleRelease
+# EMULATOR=1 also packs x86_64 native code for testing on the x86_64 emulator.
+./gradlew --no-daemon -q assembleRelease ${EMULATOR:+-Pemulator}
 TMP=$(mktemp -d)
 cp app/build/outputs/apk/release/app-release-unsigned.apk "$TMP/unsigned.apk"
 "$BT/zipalign" -c -p 4 "$TMP/unsigned.apk"

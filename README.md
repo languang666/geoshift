@@ -38,7 +38,8 @@ LSPosed 作用域只需勾选「系统框架」和「电话服务」，不需要
 需要 JDK 17+、Android SDK（platform 35、build-tools 35.0.0）。
 
 ```
-./build-release.sh        # 产出 Geoshift-<版本>.apk，使用 ~/.geoshift-signing 中的私钥签名（可用 PORTAL_KEYS 指定）
+EMULATOR=1 ./build-release.sh   # 额外打包 x86_64 原生库，产出 Geoshift-<版本>-emulator.apk，仅用于模拟器测试
+./build-release.sh        # 产出 Geoshift-<版本>.apk（仅 ARM），使用 ~/.geoshift-signing 中的私钥签名（可用 PORTAL_KEYS 指定）
 ```
 
 只编译不签名：`./gradlew assembleRelease`。

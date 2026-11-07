@@ -27,7 +27,10 @@ enum class RoadProfile(val id: String, val label: String) {
 class RoadRouter(private val context: Context) {
     val source: String get() = if (PortalStore.mapKey(context).isNotEmpty()) "高德" else "OpenStreetMap"
 
-    private val cache = HashMap<String, List<LatLon>>()
+    /** Recent sections, so undo and re-adding points need no new request. */
+    private val cache = object : LinkedHashMap<String, List<LatLon>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<LatLon>>) = size > 200
+    }
     private var lastAmapRequest = 0L
 
     /** Road path from a to b, starting at a and ending at b. Blocking; call off the main thread. */

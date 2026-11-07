@@ -31,6 +31,9 @@ public final class PortalStore {
     private static final long HOOK_SEEN_PERSIST_MS = 10000;
 
     private static JSONObject live;
+    /** Route coordinates parsed once per route change; playback reads them every tick. */
+    private static double[] routeLat = new double[0], routeLon = new double[0];
+    private static boolean routeParsed;
     private static JSONObject settingsCache;
     private static long lastRuntimeWrite;
     private static long lastHookSeenWrite;
@@ -126,6 +129,15 @@ public final class PortalStore {
         pushToSystem(c);
     }
 
+    /** Last way of drawing routes chosen in the route editor (straight / foot / bike / car). */
+    public static String lastRoadProfile(Context c) {
+        return preferences(c).getString("roadProfile", "straight");
+    }
+
+    public static void setLastRoadProfile(Context c, String profile) {
+        preferences(c).edit().putString("roadProfile", profile).apply();
+    }
+
     public static String mapKey(Context c) {
         return preferences(c).getString("mapKey", "");
     }
@@ -184,6 +196,28 @@ public final class PortalStore {
         return copy(light);
     }
 
+    /**
+     * The current route as {lats, lons}. Shared arrays: callers must not modify them. Avoids copying a
+     * road route of up to 10,000 points through JSON on every playback tick.
+     */
+    public static synchronized double[][] routeCoordinates(Context c) {
+        loadRuntime(c);
+        if (!routeParsed) {
+            JSONArray points = live.optJSONArray("route");
+            int n = points == null ? 0 : points.length();
+            double[] lat = new double[n], lon = new double[n];
+            for (int i = 0; i < n; i++) {
+                JSONObject p = points.optJSONObject(i);
+                lat[i] = p == null ? 0 : p.optDouble("lat");
+                lon[i] = p == null ? 0 : p.optDouble("lon");
+            }
+            routeLat = lat;
+            routeLon = lon;
+            routeParsed = true;
+        }
+        return new double[][]{routeLat, routeLon};
+    }
+
     public static synchronized JSONObject runtimeFields(Context c, String... keys) {
         loadRuntime(c);
         return pick(live, keys);
@@ -192,6 +226,7 @@ public final class PortalStore {
     public static synchronized void updateRuntime(Context c, JSONObject patch) {
         loadRuntime(c);
         merge(live, patch);
+        if (patch.has("route")) routeParsed = false;
         long now = SystemClock.elapsedRealtime();
         boolean important = patch.has("enabled") || patch.has("paused") || patch.has("overlay")
                 || patch.has("wifiEnabled") || patch.has("cellEnabled") || patch.has("error")
