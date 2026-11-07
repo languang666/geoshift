@@ -90,13 +90,13 @@ fun PortalApp(vm: PortalViewModel, onOpen: (SystemTarget) -> Unit, onExport: () 
         if (lsposedHelp) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = vm::hideLsposedHelp,
-                title = { Text("打开 LSPosed 管理器") },
+                title = { Text("打开 LSPosed / Vector 管理器") },
                 text = {
-                    Text("新版 LSPosed 的管理器隐藏在系统里，不能被其他应用直接打开。可以用以下任一方式进入：\n\n" +
-                        "1. 下拉通知栏，点击 LSPosed 的常驻通知；\n" +
+                    Text("LSPosed 的维护版本已改名为 Vector，两者用法相同。管理器隐藏在系统里，不能被其他应用直接打开，可以用以下任一方式进入：\n\n" +
+                        "1. 下拉通知栏，点击 LSPosed / Vector 的常驻通知；\n" +
                         "2. 打开拨号盘，输入 *#*#5776733#*#*；\n" +
-                        "3. 在 LSPosed 设置中创建桌面快捷方式。\n\n" +
-                        "进入后在「模块」里启用 Geoshift，作用域勾选「系统框架」，然后重启手机。")
+                        "3. 在管理器设置中创建桌面快捷方式。\n\n" +
+                        "进入后在「模块」里启用 Geoshift，作用域勾选「系统框架」和「电话服务」，然后重启手机。")
                 },
                 confirmButton = { androidx.compose.material3.TextButton(onClick = vm::hideLsposedHelp) { Text("知道了") } },
             )

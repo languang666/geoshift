@@ -18,7 +18,7 @@
 
 ## 系统定位
 
-LSPosed 作用域只需勾选「系统框架」和「电话服务」，不需要勾选目标应用（与原版 PortalDev 的做法一致）。模拟期间所有改写都在系统侧完成：
+支持 LSPosed 及其后继 Vector（JingMatrix/Vector，兼容旧版 Xposed API）。作用域只需勾选「系统框架」和「电话服务」，不需要勾选目标应用（与原版 PortalDev 的做法一致）。模拟期间所有改写都在系统侧完成：
 
 - 定位：system_server 按上报间隔主动向 gps / network / fused 推送模拟位置，真实上报直接丢弃（替换真实上报会让监听被动位置的融合定位服务反复回环）；发给每个应用的定位回调、单次定位、PendingIntent 和缓存位置都是模拟位置，不带模拟标记。
 - 定位数据模仿真实接收机：静止时位置在几米内缓慢漂移，精度、海拔和速度随时间轻微波动；网络定位精度为 20 米左右，且不带海拔和速度。
@@ -31,11 +31,11 @@ LSPosed 作用域只需勾选「系统框架」和「电话服务」，不需要
 
 「模拟 → 系统定位诊断」显示真实上报拦截数、推送成功／失败、应用回调替换计数、Wi-Fi 与电话服务报告。
 
-2.4.3 已在 Android 15 模拟器（Magisk 31.1 + LSPosed 1.11.0，只勾系统框架和电话服务）上用独立探针应用（tests/probe）验证：定位 8 种读取方式、卫星、NMEA、GNSS 原始测量、Wi-Fi 3 种读取方式、基站 6 种读取方式在未设预设和设了预设时均为模拟值，停止后恢复真实值。小米模糊定位服务只存在于小米 ROM，模拟器无法验证；尚未在 Redmi K70 实机验证。实现参考见 [开源项目对照](tests/OPEN_SOURCE_REVIEW.md)。
+2.5.0 已在 Android 15 模拟器（Magisk 31.1 + Vector v2.2，只勾系统框架和电话服务；2.4.3 在 LSPosed 1.11.0 上同样验证过）上用独立探针应用（tests/probe）验证：定位 8 种读取方式、卫星、NMEA、GNSS 原始测量、Wi-Fi 3 种读取方式、基站 6 种读取方式在未设预设和设了预设时均为模拟值，停止后恢复真实值。小米模糊定位服务只存在于小米 ROM，模拟器无法验证；尚未在 Redmi K70 实机验证。实现参考见 [开源项目对照](tests/OPEN_SOURCE_REVIEW.md)。
 
 ## 构建与验证
 
-需要 JDK 17+、Android SDK（platform 35、build-tools 35.0.0）。
+需要 JDK 17+、Android SDK（platform 37、build-tools 37.0.0）。构建工具链：Gradle 9.8.2、AGP 9.4.1（内置 Kotlin 2.4.21）、Compose BOM 2026.09.00。
 
 ```
 EMULATOR=1 ./build-release.sh   # 额外打包 x86_64 原生库，产出 Geoshift-<版本>-emulator.apk，仅用于模拟器测试
