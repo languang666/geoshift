@@ -397,7 +397,10 @@ final class SystemHook {
                     if (INJECT_PROVIDERS.contains(name)) {
                         try {
                             Object last = XposedHelpers.callMethod(h.args[0], "getLastLocation");
-                            if (last instanceof Location) lastReal.put(name, new Location((Location) last));
+                            // A chosen Play services app computes fused / network fixes from simulated
+                            // input; those must not become the "real" fix uncovered apps get.
+                            if (last instanceof Location && !nearSimulated(c, (Location) last))
+                                lastReal.put(name, new Location((Location) last));
                         } catch (Throwable ignored) {}
                     }
                     return;

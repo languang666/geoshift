@@ -4,7 +4,6 @@ import android.location.Location;
 import android.os.Build;
 import android.os.SystemClock;
 import org.json.JSONObject;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Builds the simulated Location from a pushed config. Used in system_server and target apps.
@@ -17,6 +16,15 @@ final class FakeLocation {
     /** Smooth value in [-1, 1] that changes over tens of seconds, deterministic for a given time. */
     static double wave(double seconds, double seed) {
         return 0.6 * Math.sin(seconds / 23.0 + seed) + 0.4 * Math.sin(seconds / 61.0 + seed * 2.7);
+    }
+
+    /** Pseudo-random value in [0, 1) fixed for a (value, salt) pair. */
+    private static double unit(long value, long salt) {
+        long z = value * salt + 0x632BE59BD9B4E019L;
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        z ^= z >>> 31;
+        return (z >>> 11) * 0x1.0p-53;
     }
 
     static Location build(JSONObject config, String provider) throws Exception {
@@ -44,8 +52,9 @@ final class FakeLocation {
         double drift = Math.min(3, base * 0.35);
         double east = drift * wave(t, 0.7), north = drift * wave(t, 2.9);
         if (s.optBoolean("jitter")) {
-            ThreadLocalRandom random = ThreadLocalRandom.current();
-            double angle = random.nextDouble() * 2 * Math.PI, d = random.nextDouble();
+            // Up to 1 m extra, new each second but the same for every app and provider within it.
+            long second = now / 1000;
+            double angle = unit(second, 0x9E3779B97F4A7C15L) * 2 * Math.PI, d = unit(second, 0xC2B2AE3D27D4EB4FL);
             east += d * Math.sin(angle);
             north += d * Math.cos(angle);
         }

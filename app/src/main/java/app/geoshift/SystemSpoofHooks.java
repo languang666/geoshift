@@ -115,11 +115,26 @@ final class SystemSpoofHooks {
                 // NMEA carries the real position: swap each sentence for the simulated one.
                 int text = -1;
                 for (int i = 0; i < h.args.length; i++) if (h.args[i] instanceof String) text = i;
-                String fake = null;
-                try { if (text >= 0) fake = FakeNmea.replace(c, (String) h.args[text]); } catch (Throwable ignored) {}
-                if (fake == null) h.setResult(null);
-                else h.args[text] = fake;
+                java.util.List<String> fake = java.util.Collections.emptyList();
+                try { if (text >= 0) fake = FakeNmea.replaceAll(c, (String) h.args[text]); } catch (Throwable ignored) {}
+                if (fake.isEmpty()) h.setResult(null);
+                else {
+                    h.args[text] = fake.get(0);
+                    if (fake.size() > 1) h.setObjectExtra("more", fake.subList(1, fake.size()));
+                }
                 hit(nmeaDrops);
+            }
+            @Override protected void afterHookedMethod(MethodHookParam h) {
+                // Simulated GSV parts the real chip never sent, one callback each like real sentences.
+                Object more = h.getObjectExtra("more");
+                if (!(more instanceof java.util.List)) return;
+                int text = -1;
+                for (int i = 0; i < h.args.length; i++) if (h.args[i] instanceof String) text = i;
+                for (Object sentence : (java.util.List<?>) more) {
+                    Object[] args = h.args.clone();
+                    args[text] = sentence;
+                    try { XposedBridge.invokeOriginalMethod(h.method, h.thisObject, args); } catch (Throwable e) { return; }
+                }
             }
         });
         // Raw pseudoranges and navigation data let an app solve the real position itself and would

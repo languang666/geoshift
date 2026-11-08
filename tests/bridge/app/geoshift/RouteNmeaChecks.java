@@ -75,6 +75,23 @@ public final class RouteNmeaChecks {
         check(FakeNmea.replace(config, "$PQGSV,whatever*00") == null, "proprietary dropped");
         String gsa = FakeNmea.replace(config, "$GNGSA,A,3,01,02,,,,,,,,,,,1.2,0.9,0.8,1*00");
         check(gsa != null && gsa.split(",").length >= 18 && validChecksum(gsa), "GSA " + gsa);
+        // Real chip sends one GPS GSV part, simulated sky needs more: all parts follow it.
+        JSONObject many = new JSONObject()
+                .put("settings", new JSONObject().put("accuracy", 5).put("satelliteCount", 24))
+                .put("runtime", new JSONObject().put("enabled", true).put("lat", 1.0).put("lon", 2.0));
+        java.util.List<String> gsvParts = FakeNmea.replaceAll(many, "$GPGSV,1,1,03,01,40,083,46,02,17,308,41,12,07,344,39*75");
+        check(gsvParts.size() >= 2, "missing GSV parts appended " + gsvParts.size());
+        for (int i = 0; i < gsvParts.size(); i++)
+            check(gsvParts.get(i).startsWith("$GPGSV," + gsvParts.size() + "," + (i + 1) + ",") && validChecksum(gsvParts.get(i)), "GSV part " + gsvParts.get(i));
+        check(FakeNmea.replaceAll(config, "$GQGSV,1,1,01,193,40,083,46*75").isEmpty(), "QZSS GSV dropped");
+        check(FakeNmea.replaceAll(config, "$GQGSA,A,3,193,,,,,,,,,,,,1.2,0.9,0.8*00").isEmpty(), "QZSS GSA dropped");
+        // One burst, one fix: GGA and RMC carry the same time.
+        String t1 = FakeNmea.replace(config, "$GPGGA,1*00").split(",")[1], t2 = FakeNmea.replace(config, "$GPRMC,1*00").split(",")[1];
+        check(t1.equals(t2), "burst shares time " + t1 + " " + t2);
+        // Jitter is the same for every caller within a second.
+        config.getJSONObject("settings").put("jitter", true);
+        Location j1 = FakeLocation.build(config, "gps"), j2 = FakeLocation.build(config, "fused");
+        check(j1.getLatitude() == j2.getLatitude() && j1.getLongitude() == j2.getLongitude(), "jitter shared across providers");
         System.out.println("PASS: " + checks + " route playback / NMEA checks.");
     }
 

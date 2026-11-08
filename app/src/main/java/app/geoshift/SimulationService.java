@@ -208,8 +208,8 @@ public final class SimulationService extends Service {
             }
             int interval = Math.max(100, Math.min(60000, s.optInt("interval", 1000)));
             if ("lsposed".equals(s.optString("backend"))) {
-                // The system hook injects on its own clock; this push is the lease heartbeat.
-                PortalStore.pushToSystem(this);
+                // The system hook injects on its own clock; push only changes plus a slow heartbeat.
+                PortalStore.heartbeatToSystem(this);
                 clock.postDelayed(ticker, Math.min(interval, 5000));
             } else if (route || s.optBoolean("enhanced", true) || r.optBoolean("paused")) {
                 clock.postDelayed(ticker, interval);

@@ -2,6 +2,7 @@ package app.geoshift;
 
 import android.location.GnssStatus;
 import android.location.Location;
+import android.os.SystemClock;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
@@ -17,14 +18,50 @@ import org.json.JSONObject;
 final class FakeNmea {
     private FakeNmea() {}
 
+    /** A chip sends one burst of sentences per fix; all of them describe the same fix. */
+    private static final long BURST_MS = 300;
+    private static volatile Burst burst;
+
+    private static final class Burst {
+        final JSONObject config;
+        final long at;
+        final Location fix;
+        final List<FakeEnvironment.Sat> sky;
+        Burst(JSONObject config, long at, Location fix, List<FakeEnvironment.Sat> sky) {
+            this.config = config; this.at = at; this.fix = fix; this.sky = sky;
+        }
+    }
+
+    private static Burst burst(JSONObject config) throws Exception {
+        long now = SystemClock.elapsedRealtime();
+        Burst b = burst;
+        if (b != null && b.config == config && now - b.at >= 0 && now - b.at < BURST_MS) return b;
+        b = new Burst(config, now, FakeLocation.build(config, "gps"), FakeEnvironment.sky(config));
+        burst = b;
+        return b;
+    }
+
     /** Simulated replacement for one real sentence, or null to drop it (proprietary / unknown). */
     static String replace(JSONObject config, String real) throws Exception {
-        if (real == null) return null;
+        List<String> all = replaceAll(config, real);
+        return all.isEmpty() ? null : all.get(0);
+    }
+
+    /**
+     * Simulated sentences for one real sentence: usually one, none to drop it, and more for the last
+     * GSV part when the simulated sky needs more parts than the real chip sent.
+     */
+    static List<String> replaceAll(JSONObject config, String real) throws Exception {
+        List<String> out = new ArrayList<>();
+        if (real == null) return out;
         String line = real.trim();
-        if (line.length() < 7 || line.charAt(0) != '$' || line.charAt(1) == 'P') return null;
+        if (line.length() < 7 || line.charAt(0) != '$' || line.charAt(1) == 'P') return out;
         String talker = line.substring(1, 3), type = line.substring(3, 6);
-        Location l = FakeLocation.build(config, "gps");
-        List<FakeEnvironment.Sat> sky = FakeEnvironment.sky(config);
+        if ("TXT".equals(type)) { out.add(real); return out; } // Chip status text; carries no position.
+        Burst b = burst(config);
+        Location l = b.fix;
+        List<FakeEnvironment.Sat> sky = b.sky;
+        int constellation = constellationOf(talker);
         String body;
         switch (type) {
             case "GGA": body = gga(talker, l, sky); break;
@@ -33,12 +70,17 @@ final class FakeNmea {
             case "GLL": body = gll(talker, l); break;
             case "GNS": body = gns(talker, l, sky); break;
             case "ZDA": body = zda(talker, l); break;
-            case "GSA": body = gsa(talker, l, sky, constellationOf(talker)); break;
-            case "GSV": return gsv(talker, sky, line);
-            case "TXT": return real; // Chip status text (antenna, firmware); carries no position.
-            default: return null;
+            case "GSA":
+                if (constellation < 0) return out; // QZSS / NavIC / ...: not in the simulated sky.
+                body = gsa(talker, l, sky, constellation);
+                break;
+            case "GSV":
+                if (constellation >= 0) out.addAll(gsv(talker, sky, line, constellation));
+                return out;
+            default: return out;
         }
-        return withChecksum(body);
+        out.add(withChecksum(body));
+        return out;
     }
 
     static String withChecksum(String body) {
@@ -47,14 +89,15 @@ final class FakeNmea {
         return body + String.format(Locale.US, "*%02X", sum) + "\r\n";
     }
 
-    /** Constellation of a talker id, or 0 for combined (GN) / unknown. */
+    /** Constellation of a talker id, 0 for combined (GN), or -1 for one the simulated sky lacks. */
     static int constellationOf(String talker) {
         switch (talker) {
             case "GP": return GnssStatus.CONSTELLATION_GPS;
             case "GL": return GnssStatus.CONSTELLATION_GLONASS;
             case "GA": return GnssStatus.CONSTELLATION_GALILEO;
             case "BD": case "GB": return GnssStatus.CONSTELLATION_BEIDOU;
-            default: return 0;
+            case "GN": return 0;
+            default: return -1;
         }
     }
 
@@ -148,22 +191,30 @@ final class FakeNmea {
         return b.append(String.format(Locale.US, ",%.1f,%.1f,%.1f", h * 1.4, h, h * 1.1)).toString();
     }
 
-    /** The simulated GSV part with the same number as the real one, or null when there is none. */
-    private static String gsv(String t, List<FakeEnvironment.Sat> sky, String real) {
-        int constellation = constellationOf(t);
+    /**
+     * The simulated GSV part with the same number as the real one (none when the simulated sky has
+     * fewer parts). On the real chip's last part, the simulated parts it never sent follow, so the
+     * part count in the header always matches the parts that arrive.
+     */
+    private static List<String> gsv(String t, List<FakeEnvironment.Sat> sky, String real, int constellation) {
+        List<String> out = new ArrayList<>();
         List<FakeEnvironment.Sat> view = new ArrayList<>();
         for (FakeEnvironment.Sat s : sky) if (constellation == 0 || s.constellation == constellation) view.add(s);
         String[] f = real.split("[,*]");
-        int part;
-        try { part = Integer.parseInt(f[2]); } catch (Exception e) { return null; }
+        int realParts, part;
+        try { realParts = Integer.parseInt(f[1]); part = Integer.parseInt(f[2]); } catch (Exception e) { return out; }
         int parts = Math.max(1, (view.size() + 3) / 4);
-        if (part < 1 || part > parts) return null;
-        StringBuilder b = new StringBuilder(String.format(Locale.US, "$%sGSV,%d,%d,%02d", t, parts, part, view.size()));
-        for (int i = (part - 1) * 4; i < Math.min(view.size(), part * 4); i++) {
-            FakeEnvironment.Sat s = view.get(i);
-            b.append(String.format(Locale.US, ",%02d,%02d,%03d,%02d", nmeaId(s), Math.round(s.elevation),
-                    Math.round(s.azimuth) % 360, Math.round(s.cn0)));
+        if (part < 1 || part > parts) return out;
+        int last = part == realParts ? parts : part;
+        for (int n = part; n <= last; n++) {
+            StringBuilder b = new StringBuilder(String.format(Locale.US, "$%sGSV,%d,%d,%02d", t, parts, n, view.size()));
+            for (int i = (n - 1) * 4; i < Math.min(view.size(), n * 4); i++) {
+                FakeEnvironment.Sat s = view.get(i);
+                b.append(String.format(Locale.US, ",%02d,%02d,%03d,%02d", nmeaId(s), Math.round(s.elevation),
+                        Math.round(s.azimuth) % 360, Math.round(s.cn0)));
+            }
+            out.add(withChecksum(b.toString()));
         }
-        return withChecksum(b.toString());
+        return out;
     }
 }

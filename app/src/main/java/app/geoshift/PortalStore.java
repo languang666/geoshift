@@ -310,7 +310,8 @@ public final class PortalStore {
             if (patch.has("route")) preferences(c).edit().putString("runtimeRoute", String.valueOf(live.opt("route"))).apply();
             lastRuntimeWrite = now;
         }
-        pushToSystem(c);
+        // Any change the system hook cares about goes out at once; route steps it computes itself.
+        heartbeatToSystem(c);
     }
 
     /** Lives as long as this process; the system hook drops the config when it dies. */
@@ -321,7 +322,20 @@ public final class PortalStore {
      * this app and keeps it until this process dies (it watches PROCESS_TOKEN), so screen-off sleep or
      * background freezing never lets real fixes through. Harmless when the module is not active.
      */
-    public static synchronized void pushToSystem(Context c) {
+    public static synchronized void pushToSystem(Context c) { push(c, false); }
+
+    /**
+     * Clock-tick variant: pushes only when the config changed, or every HEARTBEAT_MS. During route
+     * playback the moving position is left out of the comparison: the system hook plays the route
+     * itself, so the app need not wake it every second.
+     */
+    public static synchronized void heartbeatToSystem(Context c) { push(c, true); }
+
+    private static final long HEARTBEAT_MS = 10_000;
+    private static String lastPushSignature = "";
+    private static long lastPushAt;
+
+    private static void push(Context c, boolean onlyIfChanged) {
         try {
             JSONObject settings = settings(c), safe = new JSONObject();
             for (String k : HOOK_SETTING_KEYS) safe.put(k, settings.opt(k));
@@ -329,12 +343,19 @@ public final class PortalStore {
             RoutePlan plan = "route".equals(runtime.optString("mode")) ? routePlan(c) : null;
             if (plan != null) runtime.put("planId", plan.id);
             JSONObject config = obj("settings", safe, "runtime", runtime);
+            JSONObject stable = new JSONObject(runtime.toString());
+            if (plan != null) for (String k : new String[]{"lat", "lon", "bearing", "speed"}) stable.remove(k);
+            String signature = safe.toString() + stable;
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (onlyIfChanged && signature.equals(lastPushSignature) && now - lastPushAt < HEARTBEAT_MS) return;
             android.os.Bundle b = new android.os.Bundle();
             b.putString("config", config.toString());
             b.putBinder("token", PROCESS_TOKEN);
             LocationManager lm = (LocationManager) c.getSystemService(Context.LOCATION_SERVICE);
             if (lm == null) return;
             lm.sendExtraCommand("geoshift", "SET", b);
+            lastPushSignature = signature;
+            lastPushAt = now;
             // The system hook plays the route itself; send the points once per route (or again after
             // system_server restarted and lost them).
             if (plan != null && (b.getBoolean("needRoute") || !plan.id.equals(routeSentId))) {

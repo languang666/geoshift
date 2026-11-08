@@ -20,6 +20,9 @@ final class AppScope {
     private static volatile String cachedList = null;
     private static volatile Set<String> cachedPackages = new HashSet<>();
     private static final Map<Integer, Boolean> uidCache = new ConcurrentHashMap<>();
+    /** Uids are reused after an uninstall, so the uid -> package answers are refreshed now and then. */
+    private static final long UID_CACHE_MS = 60_000;
+    private static volatile long uidCacheAt;
 
     static void setContext(Context c) { if (c != null) context = c; }
 
@@ -47,6 +50,8 @@ final class AppScope {
         Set<String> chosen = packages(config);
         if (chosen.isEmpty()) return false;
         int appId = uid % 100000;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - uidCacheAt > UID_CACHE_MS) { uidCache.clear(); uidCacheAt = now; }
         Boolean known = uidCache.get(uid);
         if (known != null) return known;
         boolean result = false;
