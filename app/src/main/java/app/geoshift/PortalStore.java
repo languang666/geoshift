@@ -301,9 +301,12 @@ public final class PortalStore {
 
     /**
      * Sends the hook-visible config to the LSPosed system-framework hook. The hook only accepts it from
-     * this app, and stops injecting by itself if no push arrives for 20 s, so callers refresh it often.
-     * Harmless when the module is not active (the command is simply ignored).
+     * this app and keeps it until this process dies (it watches PROCESS_TOKEN), so screen-off sleep or
+     * background freezing never lets real fixes through. Harmless when the module is not active.
      */
+    /** Lives as long as this process; the system hook drops the config when it dies. */
+    private static final android.os.Binder PROCESS_TOKEN = new android.os.Binder();
+
     public static synchronized void pushToSystem(Context c) {
         try {
             JSONObject settings = settings(c), safe = new JSONObject();
@@ -311,6 +314,7 @@ public final class PortalStore {
             JSONObject config = obj("settings", safe, "runtime", runtimeFields(c, HOOK_RUNTIME_KEYS));
             android.os.Bundle b = new android.os.Bundle();
             b.putString("config", config.toString());
+            b.putBinder("token", PROCESS_TOKEN);
             LocationManager lm = (LocationManager) c.getSystemService(Context.LOCATION_SERVICE);
             if (lm != null) lm.sendExtraCommand("geoshift", "SET", b);
         } catch (Exception ignored) {}

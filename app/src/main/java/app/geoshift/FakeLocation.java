@@ -28,7 +28,9 @@ final class FakeLocation {
         // Network fixes come from cell / Wi-Fi databases and are much coarser than satellite fixes.
         double accuracy = network ? Math.max(base * 4, 18) * (1 + 0.15 * wave(t, 4.1))
                 : base * (1 + 0.2 * wave(t, 1.3));
-        double drift = Math.min(network ? 8 : 3, accuracy * 0.35);
+        // Same drift for every provider: apps that mix gps / network / fused fixes must see one point,
+        // otherwise their dot hops between two positions.
+        double drift = Math.min(3, base * 0.35);
         double east = drift * wave(t, 0.7), north = drift * wave(t, 2.9);
         if (s.optBoolean("jitter")) {
             ThreadLocalRandom random = ThreadLocalRandom.current();

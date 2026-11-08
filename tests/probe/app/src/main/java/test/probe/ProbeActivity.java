@@ -21,8 +21,11 @@ import android.telephony.CellInfo;
 import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyManager;
 import android.util.Log;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -41,14 +44,47 @@ public class ProbeActivity extends Activity {
     private android.bluetooth.le.ScanCallback bleCallback;
     private String measurementSample = "";
     private String gnssSummary = "无回调", nmeaSample = "";
+    private String report = "";
+    private boolean running;
+    private static final String[] PERMISSIONS = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            android.Manifest.permission.READ_PHONE_STATE, android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.BLUETOOTH_SCAN};
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        int pad = (int) (12 * getResources().getDisplayMetrics().density);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad * 3, pad, pad);
+        LinearLayout bar = new LinearLayout(this);
+        Button copy = new Button(this);
+        copy.setText("复制结果");
+        copy.setOnClickListener(v -> {
+            if (report.isEmpty()) { Toast.makeText(this, "还在采集", Toast.LENGTH_SHORT).show(); return; }
+            getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("GeoProbe", report));
+            Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show();
+        });
+        Button again = new Button(this);
+        again.setText("重新检测");
+        again.setOnClickListener(v -> { if (!running) recreate(); });
+        bar.addView(copy);
+        bar.addView(again);
+        root.addView(bar);
         view = new TextView(this);
         view.setTextIsSelectable(true);
         ScrollView scroll = new ScrollView(this);
         scroll.addView(view);
-        setContentView(scroll);
+        root.addView(scroll);
+        setContentView(root);
+        java.util.List<String> missing = new java.util.ArrayList<>();
+        for (String p : PERMISSIONS) if (checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED) missing.add(p);
+        if (missing.isEmpty()) run();
+        else requestPermissions(missing.toArray(new String[0]), 1);
+    }
+
+    @Override public void onRequestPermissionsResult(int code, String[] perms, int[] grants) {
+        super.onRequestPermissionsResult(code, perms, grants);
         run();
     }
 
@@ -65,6 +101,13 @@ public class ProbeActivity extends Activity {
 
     @SuppressWarnings({"MissingPermission", "deprecation"})
     private void run() {
+        running = true;
+        StringBuilder denied = new StringBuilder();
+        for (String p : PERMISSIONS) if (checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            denied.append(p.substring(p.lastIndexOf('.') + 1)).append(' ');
+        put("0.device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL + " Android " + android.os.Build.VERSION.RELEASE
+                + " " + android.os.Build.DISPLAY);
+        put("0.permissionsDenied", denied.length() == 0 ? "none" : denied.toString().trim());
         LocationManager lm = getSystemService(LocationManager.class);
         for (String p : new String[]{"gps", "network", "fused", "passive"}) {
             try { put("1.last." + p, loc(lm.getLastKnownLocation(p))); } catch (Throwable e) { put("1.last." + p, "ERR " + e); }
@@ -232,6 +275,8 @@ public class ProbeActivity extends Activity {
             all.append(line).append('\n');
         }
         Log.i(TAG, "DONE");
+        report = all.toString();
+        running = false;
         view.setText(all);
     }
 }

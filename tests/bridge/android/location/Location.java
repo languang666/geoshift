@@ -13,6 +13,7 @@ public class Location {
     public double getLongitude(){return lon;} public void setLongitude(double v){lon=v;}
     public double getAltitude(){return alt;} public void setAltitude(double v){alt=v;}
     public float getAccuracy(){return accuracy;} public void setAccuracy(float v){accuracy=v;}
+    public void setExtras(Bundle v){extras=v;}
     public float getSpeed(){return speed;} public void setSpeed(float v){speed=v;}
     public float getBearing(){return bearing;} public void setBearing(float v){bearing=v;}
     public long getTime(){return time;} public void setTime(long v){time=v;}

@@ -6,6 +6,7 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.HandlerThread;
 import android.os.SystemClock;
 import java.lang.reflect.Field;
@@ -39,12 +40,17 @@ import de.robv.android.xposed.XposedHelpers;
 final class SystemHook {
     static final String COMMAND_PROVIDER = "geoshift";
     private static final String SELF = "app.geoshift";
-    /** The app must refresh the config this often or location injection stops by itself. */
+    /**
+     * Without a process token (older app builds) the app must refresh the config this often or
+     * injection stops by itself. With a token the config stays until the app process dies, so a
+     * sleeping or frozen app does not let real fixes through.
+     */
     private static final long LEASE_MS = 20_000;
     private static final List<String> INJECT_PROVIDERS = java.util.Arrays.asList("gps", "network", "fused");
 
     private static volatile JSONObject config;
     private static volatile long setAt;
+    private static volatile IBinder appToken;
     private static volatile boolean systemLocation;
     private static int ownUid = -1;
     private static final Set<Object> managers = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<Object, Boolean>()));
@@ -158,6 +164,7 @@ final class SystemHook {
                 if (!own) return;
                 config = new JSONObject(extras.getString("config", "{}"));
                 setAt = SystemClock.elapsedRealtime();
+                watch(extras.getBinder("token"));
                 extras.putBoolean("ok", true);
                 schedule(0);
                 break;
@@ -210,11 +217,30 @@ final class SystemHook {
         }
     }
 
-    /** Config if the lease is fresh, else null (the app stopped refreshing it). */
+    /** Drops the config when the app process that sent it dies. */
+    private static synchronized void watch(IBinder token) {
+        if (token == appToken) return;
+        appToken = null;
+        if (token == null || !token.isBinderAlive()) return;
+        try {
+            token.linkToDeath(() -> {
+                synchronized (SystemHook.class) {
+                    if (appToken != token) return;
+                    appToken = null;
+                    config = null;
+                }
+            }, 0);
+            appToken = token;
+        } catch (Throwable ignored) {}
+    }
+
+    /** Config while the app process is alive (or, without a token, the lease is fresh), else null. */
     static JSONObject current() {
         JSONObject c = config;
-        if (c == null || SystemClock.elapsedRealtime() - setAt > LEASE_MS) return null;
-        return c;
+        if (c == null) return null;
+        IBinder token = appToken;
+        if (token != null) return token.isBinderAlive() ? c : null;
+        return SystemClock.elapsedRealtime() - setAt > LEASE_MS ? null : c;
     }
 
     /** Fresh config when LSPosed mode is selected, else null. */

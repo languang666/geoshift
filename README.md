@@ -1,4 +1,4 @@
-# Geoshift（2.5.3，原 Portal Compose 版）
+# Geoshift（2.5.4，原 Portal Compose 版）
 
 原生 Kotlin + Jetpack Compose 重写的虚拟定位工具，界面布局和使用流程参照 PortalDev：
 底部四个标签：地图、历史、模拟、设置；Wi-Fi 模拟、基站模拟、权限与模块引导是二级页面。
