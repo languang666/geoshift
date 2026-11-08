@@ -226,59 +226,88 @@ public final class PortalHook implements IXposedHookLoadPackage {
     private static void installPhone(ClassLoader... loaders) {
         if (!installed.add("__phone_hooks__")) return;
         int hooks = 0;
-        Set<Class<?>> seen = new java.util.HashSet<>();
         for (String className : new String[]{"com.android.phone.PhoneInterfaceManager", "com.android.phone.HwPhoneInterfaceManager"}) {
-        for (ClassLoader loader : loaders) {
-            Class<?> type = XposedHelpers.findClassIfExists(className, loader);
-            if (type == null || !seen.add(type)) continue;
-            XC_MethodHook query = new XC_MethodHook() {
+            for (ClassLoader loader : loaders) hooks += hookPhoneClass(XposedHelpers.findClassIfExists(className, loader));
+        }
+        // OEM ROMs may publish a subclass of PhoneInterfaceManager that overrides these queries, so the
+        // class of the object actually registered as "phone" is hooked too, now or when it registers.
+        try {
+            Class<?> services = Class.forName("android.os.ServiceManager");
+            Object published = XposedHelpers.callStaticMethod(services, "checkService", "phone");
+            if (published != null) hooks += hookPhoneChain(published.getClass());
+            XposedBridge.hookAllMethods(services, "addService", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam h) {
-                    if (Binder.getCallingUid() < 10000 || h.hasThrowable()) return;
-                    JSONObject c = phoneCells();
-                    if (c == null) return;
-                    try {
-                        Class<?> result = ((Method) h.method).getReturnType();
-                        String name = h.method.getName();
-                        if (List.class.isAssignableFrom(result))
-                            h.setResult("getAllCellInfo".equals(name) ? FakeEnvironment.cellsOrEmpty(c) : new ArrayList<>());
-                        else if (result == Bundle.class) h.setResult(new Bundle());
-                        else if ("android.telephony.ServiceState".equals(result.getName())) {
-                            if (h.getResult() == null) return;
-                            h.setResult(FakeEnvironment.serviceState(h.getResult(), c));
-                        }
-                        else if ("getCellLocation".equals(name)) h.setResult(FakeEnvironment.cellIdentityOrEmpty(c));
-                        else return;
-                        report("cell", null, "read", "电话服务已替换基站查询：" + name);
-                    } catch (Throwable e) { report("cell", e, "error", "电话服务基站查询替换失败"); }
-                }
-            };
-            for (String name : new String[]{"getAllCellInfo", "getCellLocation", "getNeighboringCellInfo",
-                    "getServiceStateForSlot", "getServiceStateForSubscriber"})
-                hooks += XposedBridge.hookAllMethods(type, name, query).size();
-            XC_MethodHook update = new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam h) {
-                    if (Binder.getCallingUid() < 10000) return;
-                    JSONObject c = phoneCells();
-                    if (c == null) return;
-                    for (Object a : h.args) {
-                        if (a == null || !implementsInterface(a.getClass(), "android.telephony.ICellInfoCallback")) continue;
-                        try {
-                            XposedHelpers.callMethod(a, "onCellInfo", FakeEnvironment.cellsOrEmpty(c));
-                            h.setResult(null); // Answered; skip the real modem request.
-                            report("cell", null, "read", "电话服务已替换基站刷新回调");
-                        } catch (Throwable e) { report("cell", e, "error", "基站刷新回调替换失败"); }
-                        return;
+                    if (h.args.length > 1 && "phone".equals(h.args[0]) && h.args[1] != null) {
+                        int n = hookPhoneChain(h.args[1].getClass());
+                        if (n > 0) report("cell", null, "installed", "电话服务基站伪装入口已安装（注册对象 " + n + " 处）");
                     }
                 }
-            };
-            for (String name : new String[]{"requestCellInfoUpdate", "requestCellInfoUpdateWithWorkSource"})
-                hooks += XposedBridge.hookAllMethods(type, name, update).size();
-        }
-        }
+            });
+        } catch (Throwable e) { XposedBridge.log("Geoshift phone service lookup: " + e); }
         XposedBridge.log("Geoshift phone cell hooks: " + hooks);
         if (hooks == 0) installed.remove("__phone_hooks__"); // Let a later Application.attach retry.
         report("cell", hooks == 0 ? new IllegalStateException("PhoneInterfaceManager") : null,
-                hooks == 0 ? "error" : "installed", hooks == 0 ? "电话服务未找到基站查询入口" : "电话服务基站伪装入口已安装");
+                hooks == 0 ? "error" : "installed",
+                hooks == 0 ? "电话服务未找到基站查询入口" : "电话服务基站伪装入口已安装");
+    }
+
+    private static final Set<Class<?>> phoneClasses = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    /** Hooks every class from the published phone service up to (not including) the framework stub. */
+    private static int hookPhoneChain(Class<?> type) {
+        int hooks = 0;
+        for (Class<?> c = type; c != null && c != Object.class && !c.getName().startsWith("android.")
+                && !c.getName().startsWith("com.android.internal."); c = c.getSuperclass())
+            hooks += hookPhoneClass(c);
+        return hooks;
+    }
+
+    private static int hookPhoneClass(Class<?> type) {
+        if (type == null || !phoneClasses.add(type)) return 0;
+        int hooks = 0;
+        XC_MethodHook query = new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam h) {
+                if (Binder.getCallingUid() < 10000 || h.hasThrowable()) return;
+                JSONObject c = phoneCells();
+                if (c == null) return;
+                try {
+                    Class<?> result = ((Method) h.method).getReturnType();
+                    String name = h.method.getName();
+                    if (List.class.isAssignableFrom(result))
+                        h.setResult("getAllCellInfo".equals(name) ? FakeEnvironment.cellsOrEmpty(c) : new ArrayList<>());
+                    else if (result == Bundle.class) h.setResult(new Bundle());
+                    else if ("android.telephony.ServiceState".equals(result.getName())) {
+                        if (h.getResult() == null) return;
+                        h.setResult(FakeEnvironment.serviceState(h.getResult(), c));
+                    }
+                    else if ("getCellLocation".equals(name)) h.setResult(FakeEnvironment.cellIdentityOrEmpty(c));
+                    else return;
+                    report("cell", null, "read", "电话服务已替换基站查询：" + name);
+                } catch (Throwable e) { report("cell", e, "error", "电话服务基站查询替换失败"); }
+            }
+        };
+        for (String name : new String[]{"getAllCellInfo", "getCellLocation", "getNeighboringCellInfo",
+                "getServiceStateForSlot", "getServiceStateForSubscriber"})
+            hooks += XposedBridge.hookAllMethods(type, name, query).size();
+        XC_MethodHook update = new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam h) {
+                if (Binder.getCallingUid() < 10000) return;
+                JSONObject c = phoneCells();
+                if (c == null) return;
+                for (Object a : h.args) {
+                    if (a == null || !implementsInterface(a.getClass(), "android.telephony.ICellInfoCallback")) continue;
+                    try {
+                        XposedHelpers.callMethod(a, "onCellInfo", FakeEnvironment.cellsOrEmpty(c));
+                        h.setResult(null); // Answered; skip the real modem request.
+                        report("cell", null, "read", "电话服务已替换基站刷新回调");
+                    } catch (Throwable e) { report("cell", e, "error", "基站刷新回调替换失败"); }
+                    return;
+                }
+            }
+        };
+        for (String name : new String[]{"requestCellInfoUpdate", "requestCellInfoUpdateWithWorkSource"})
+            hooks += XposedBridge.hookAllMethods(type, name, update).size();
+        return hooks;
     }
 
     private static boolean implementsInterface(Class<?> type, String name) {

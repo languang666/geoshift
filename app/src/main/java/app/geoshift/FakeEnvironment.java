@@ -183,24 +183,55 @@ final class FakeEnvironment {
     @androidx.annotation.RequiresApi(30)
     static GnssStatus gnss(JSONObject config) {
         JSONObject s = config.optJSONObject("settings");
-        int count = Math.max(4, Math.min(32, s == null ? 12 : s.optInt("satelliteCount", 12)));
+        int count = satelliteCount(config), used = satellitesUsed(count);
         double minutes = SystemClock.elapsedRealtime() / 60000.0;
-        double seconds = minutes * 60;
         GnssStatus.Builder b = new GnssStatus.Builder();
-        int used = Math.min(count, Math.max(4, count * 3 / 4));
         for (int i = 0; i < count; i++) {
             int k = i % CONSTELLATIONS.length;
             int svid = 1 + (i / CONSTELLATIONS.length * 7 + k * 3) % MAX_SVID[k];
             float carrier = CARRIER_HZ[k];
             // GLONASS satellites each use their own channel, 0.5625 MHz apart.
             if (CONSTELLATIONS[k] == GnssStatus.CONSTELLATION_GLONASS) carrier += (svid % 14 - 7) * 0.5625e6f;
-            double elevation = 15 + (i * 37) % 70 + 6 * Math.sin(minutes / 40.0 + i);
+            double elevation = elevation(i, minutes);
             double azimuth = ((i * 137) % 360 + minutes * 0.5 * (i % 2 == 0 ? 1 : -1) + 360) % 360;
-            // Higher satellites are received more strongly.
-            double cn0 = 18 + elevation * 0.28 + 2.5 * FakeLocation.wave(seconds, i * 1.7);
+            double cn0 = cn0(i, minutes);
             b.addSatellite(CONSTELLATIONS[k], svid, (float) cn0, (float) elevation, (float) azimuth,
                     true, true, i < used, true, carrier, false, 0);
         }
         return b.build();
+    }
+
+    static int satelliteCount(JSONObject config) {
+        JSONObject s = config.optJSONObject("settings");
+        return Math.max(4, Math.min(32, s == null ? 12 : s.optInt("satelliteCount", 12)));
+    }
+
+    static int satellitesUsed(int count) { return Math.min(count, Math.max(4, count * 3 / 4)); }
+
+    private static double elevation(int i, double minutes) { return 15 + (i * 37) % 70 + 6 * Math.sin(minutes / 40.0 + i); }
+
+    /** Higher satellites are received more strongly. */
+    private static double cn0(int i, double minutes) {
+        return 18 + elevation(i, minutes) * 0.28 + 2.5 * FakeLocation.wave(minutes * 60, i * 1.7);
+    }
+
+    /**
+     * Extras a real GNSS fix carries (AOSP GnssLocationProvider): satellites used in the fix and their
+     * signal strength. Location SDKs read them to weigh GPS against their own Wi-Fi positioning, and they
+     * must agree with the simulated sky.
+     */
+    static android.os.Bundle gpsExtras(JSONObject config) {
+        int used = satellitesUsed(satelliteCount(config));
+        double minutes = SystemClock.elapsedRealtime() / 60000.0, sum = 0, max = 0;
+        for (int i = 0; i < used; i++) {
+            double cn0 = cn0(i, minutes);
+            sum += cn0;
+            max = Math.max(max, cn0);
+        }
+        android.os.Bundle extras = new android.os.Bundle();
+        extras.putInt("satellites", used);
+        extras.putInt("meanCn0", (int) Math.round(sum / used));
+        extras.putInt("maxCn0", (int) Math.round(max));
+        return extras;
     }
 }

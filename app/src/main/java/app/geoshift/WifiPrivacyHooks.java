@@ -50,6 +50,14 @@ final class WifiPrivacyHooks {
                 if (name.startsWith("com.android.server.wifi.") || CONNECTIVITY_INITIALIZER.equals(name)) discover(service.getClassLoader());
             }
         });
+        // The object actually published as "wifi" may be an OEM subclass that overrides the AOSP
+        // methods, so its own class chain is hooked as well.
+        Class<?> services = XposedHelpers.findClassIfExists("android.os.ServiceManager", loader);
+        if (services != null) XposedBridge.hookAllMethods(services, "addService", new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam h) {
+                if (h.args.length > 1 && "wifi".equals(h.args[0]) && h.args[1] != null) installPublished(h.args[1].getClass());
+            }
+        });
         discover(loader);
         if (!wifiInstalled) controller.report(null, "waiting", "等待系统 Wi-Fi 服务加载；尚未确认保护入口");
     }
@@ -60,6 +68,14 @@ final class WifiPrivacyHooks {
         for (String name : CONNECTIVITY) {
             Class<?> connectivity = XposedHelpers.findClassIfExists(name, loader);
             if (connectivity != null) installConnectivity(connectivity);
+        }
+    }
+
+    private void installPublished(Class<?> type) {
+        for (Class<?> c = type; c != null && c != Object.class && !c.getName().startsWith("android.os."); c = c.getSuperclass()) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (m.getName().equals("getScanResults")) { installClass(c); break; }
+            }
         }
     }
 

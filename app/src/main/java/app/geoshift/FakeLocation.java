@@ -56,6 +56,7 @@ final class FakeLocation {
             boolean moving = speed > 0;
             if (!moving) speed = 0.12 * (1 + wave(t, 5.2)); // A still receiver reports a few cm/s.
             l.setSpeed((float) speed);
+            if ("gps".equals(provider)) l.setExtras(FakeEnvironment.gpsExtras(config));
             if (moving) l.setBearing((float) r.optDouble("bearing", 0));
             if (Build.VERSION.SDK_INT >= 26) {
                 l.setVerticalAccuracyMeters((float) (accuracy * 1.6));
