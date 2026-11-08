@@ -193,6 +193,12 @@ public class ProbeActivity extends Activity {
             else scanner.startScan(bleCallback);
         } catch (Throwable e) { put("11.ble.scan", "ERR " + e); }
 
+        // Detection test: can an ordinary app find Geoshift through its command channel?
+        try {
+            Bundle probe = new Bundle();
+            lm.sendExtraCommand("geoshift", "GET", probe);
+            put("12.detect.geoshiftGet", probe.isEmpty() ? "hidden (no reply)" : "VISIBLE keys=" + probe.keySet());
+        } catch (Throwable e) { put("12.detect.geoshiftGet", "hidden (" + e.getClass().getSimpleName() + ")"); }
         WifiManager wifi = getSystemService(WifiManager.class);
         try { wifi.startScan(); } catch (Throwable ignored) {}
         TelephonyManager tm = getSystemService(TelephonyManager.class);

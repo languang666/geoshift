@@ -22,8 +22,19 @@ final class FakeLocation {
     static Location build(JSONObject config, String provider) throws Exception {
         JSONObject r = config.getJSONObject("runtime"), s = config.getJSONObject("settings");
         double lat = r.getDouble("lat"), lon = r.getDouble("lon");
+        double routeSpeed = -1, routeBearing = 0;
+        long now = SystemClock.elapsedRealtime();
+        // A route keeps moving here even while the app sleeps (see RoutePlan).
+        RoutePlan.Position route = RoutePlan.live(config, now);
+        if (route != null) {
+            lat = route.lat;
+            lon = route.lon;
+            routeBearing = route.bearing;
+            boolean moving = !r.optBoolean("paused") && !route.finished;
+            routeSpeed = moving ? r.optDouble("routeSpeed", 0) * RoutePlan.speedFactor(now / 1000.0) : 0;
+        }
         boolean network = "network".equals(provider);
-        double t = SystemClock.elapsedRealtime() / 1000.0;
+        double t = now / 1000.0;
         double base = Math.max(1, s.optDouble("accuracy", 5));
         // Network fixes come from cell / Wi-Fi databases and are much coarser than satellite fixes.
         double accuracy = network ? Math.max(base * 4, 18) * (1 + 0.15 * wave(t, 4.1))
@@ -54,12 +65,12 @@ final class FakeLocation {
         if (!network) {
             // Satellite-based fixes carry altitude and motion; network fixes do not.
             l.setAltitude(s.optDouble("altitude", 0) + 1.5 * wave(t, 3.3));
-            double speed = r.optBoolean("paused") ? 0 : r.optDouble("speed", 0);
+            double speed = routeSpeed >= 0 ? routeSpeed : r.optBoolean("paused") ? 0 : r.optDouble("speed", 0);
             boolean moving = speed > 0;
             if (!moving) speed = 0.12 * (1 + wave(t, 5.2)); // A still receiver reports a few cm/s.
             l.setSpeed((float) speed);
             if ("gps".equals(provider)) l.setExtras(FakeEnvironment.gpsExtras(config));
-            if (moving) l.setBearing((float) r.optDouble("bearing", 0));
+            if (moving) l.setBearing((float) (route != null ? routeBearing : r.optDouble("bearing", 0)));
             if (Build.VERSION.SDK_INT >= 26) {
                 l.setVerticalAccuracyMeters((float) (accuracy * 1.6));
                 l.setSpeedAccuracyMetersPerSecond((float) (0.4 + 0.2 * (1 + wave(t, 6.1))));

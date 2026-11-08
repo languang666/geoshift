@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.VerifiedUser
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
@@ -89,6 +90,7 @@ fun SettingsScreen(
     var number by remember { mutableStateOf<NumberSetting?>(null) }
     var choice by remember { mutableStateOf<String?>(null) }
     var mapKey by remember { mutableStateOf(false) }
+    var appScope by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var text by remember { mutableStateOf<Pair<String, String>?>(null) }
 
@@ -109,6 +111,11 @@ fun SettingsScreen(
             Divider()
             SettingRow("权限与模块检查", if (s.caps.systemHook) "系统入口已安装，目标应用效果需看实际命中" else if (s.caps.hookActive) "LSPosed 模块已连接" else if (st.lsposed) "未检测到LSPosed" else "查看授权与模拟位置应用状态",
                 icon = Icons.Rounded.VerifiedUser, onClick = onOpenSetup)
+            Divider()
+            SettingRow("模拟范围", if (st.lsposed) "选择哪些应用看到模拟位置，其他应用保持真实" else "仅 LSPosed 模式可用",
+                icon = Icons.Rounded.Apps, enabled = st.lsposed,
+                value = if (st.appScope == "selected") "选中的 ${st.allowedList.size} 个应用" else "所有应用",
+                onClick = { if (st.lsposed) appScope = true })
         }
 
         SectionTitle("位置模拟设置")
@@ -190,6 +197,15 @@ fun SettingsScreen(
             SettingRow("隐私政策", null, icon = Icons.Rounded.PrivacyTip, onClick = { text = "隐私政策" to PRIVACY })
             Divider()
             SettingRow("开源许可", null, icon = Icons.AutoMirrored.Rounded.Article, onClick = { text = "开源许可" to LICENSES })
+        }
+    }
+
+    if (appScope) {
+        AppScopeDialog(st.appScope, st.allowedList, onDismiss = { appScope = false }) { mode, packages ->
+            appScope = false
+            vm.run(if (mode == "selected") "仅对选中的 ${packages.size} 个应用模拟" else "已对所有应用模拟") {
+                saveSettings(JSONObject().put("appScope", mode).put("allowedPackages", packages.joinToString(",")))
+            }
         }
     }
 

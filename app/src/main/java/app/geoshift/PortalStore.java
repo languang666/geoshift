@@ -23,10 +23,12 @@ public final class PortalStore {
 
     /** Runtime keys handed to hooked target processes. The route is deliberately excluded. */
     static final String[] HOOK_RUNTIME_KEYS = {
-            "enabled", "paused", "lat", "lon", "speed", "bearing",
+            "enabled", "paused", "lat", "lon", "speed", "bearing", "mode",
+            "routeAnchorDist", "routeAnchorAt", "routeSpeed",
             "wifiEnabled", "wifi", "cellEnabled", "cell", "cells"};
     static final String[] HOOK_SETTING_KEYS = {
-            "backend", "privacyAccepted", "accuracy", "altitude", "jitter", "gnssEnabled", "satelliteCount", "interval", "protectWifi", "spoofEnvironment"};
+            "backend", "privacyAccepted", "accuracy", "altitude", "jitter", "gnssEnabled", "satelliteCount", "interval",
+            "protectWifi", "spoofEnvironment", "appScope", "allowedPackages"};
 
     private static final long RUNTIME_PERSIST_MS = 2000;
     private static final long HOOK_SEEN_PERSIST_MS = 10000;
@@ -35,6 +37,10 @@ public final class PortalStore {
     /** Route coordinates parsed once per route change; playback reads them every tick. */
     private static double[] routeLat = new double[0], routeLon = new double[0];
     private static boolean routeParsed;
+    /** Route points parsed for playback, shared with FakeLocation in this process. */
+    private static RoutePlan routePlan;
+    /** Id of the route the system hook confirmed it holds. */
+    private static String routeSentId = "";
     private static JSONObject settingsCache;
     private static long lastRuntimeWrite;
     private static long lastHookSeenWrite;
@@ -143,7 +149,7 @@ public final class PortalStore {
                     "accuracy", 5, "altitude", 0, "jitter", false, "enhanced", true, "secondReport", false,
                     "debug", false, "privacyAccepted", false, "theme", "system", "allowedPackages", "",
                     "gnssEnabled", false, "satelliteCount", 12, "mapSource", "amap", "protectWifi", false,
-                    "spoofEnvironment", true);
+                    "spoofEnvironment", true, "appScope", "all");
             merge(value, parse(preferences(c).getString("settings", "{}")));
             value.remove("mapKey");
             // 2.5.0 dropped the AMap map SDK; forget the Android key it needed.
@@ -265,8 +271,16 @@ public final class PortalStore {
             routeLat = lat;
             routeLon = lon;
             routeParsed = true;
+            routePlan = new RoutePlan(RoutePlan.idOf(lat, lon), lat, lon);
+            RoutePlan.install(routePlan);
         }
         return new double[][]{routeLat, routeLon};
+    }
+
+    /** The current route as a playback plan (cached until the route changes). */
+    public static synchronized RoutePlan routePlan(Context c) {
+        routeCoordinates(c);
+        return routePlan;
     }
 
     public static synchronized JSONObject runtimeFields(Context c, String... keys) {
@@ -299,24 +313,38 @@ public final class PortalStore {
         pushToSystem(c);
     }
 
+    /** Lives as long as this process; the system hook drops the config when it dies. */
+    private static final android.os.Binder PROCESS_TOKEN = new android.os.Binder();
+
     /**
      * Sends the hook-visible config to the LSPosed system-framework hook. The hook only accepts it from
      * this app and keeps it until this process dies (it watches PROCESS_TOKEN), so screen-off sleep or
      * background freezing never lets real fixes through. Harmless when the module is not active.
      */
-    /** Lives as long as this process; the system hook drops the config when it dies. */
-    private static final android.os.Binder PROCESS_TOKEN = new android.os.Binder();
-
     public static synchronized void pushToSystem(Context c) {
         try {
             JSONObject settings = settings(c), safe = new JSONObject();
             for (String k : HOOK_SETTING_KEYS) safe.put(k, settings.opt(k));
-            JSONObject config = obj("settings", safe, "runtime", runtimeFields(c, HOOK_RUNTIME_KEYS));
+            JSONObject runtime = runtimeFields(c, HOOK_RUNTIME_KEYS);
+            RoutePlan plan = "route".equals(runtime.optString("mode")) ? routePlan(c) : null;
+            if (plan != null) runtime.put("planId", plan.id);
+            JSONObject config = obj("settings", safe, "runtime", runtime);
             android.os.Bundle b = new android.os.Bundle();
             b.putString("config", config.toString());
             b.putBinder("token", PROCESS_TOKEN);
             LocationManager lm = (LocationManager) c.getSystemService(Context.LOCATION_SERVICE);
-            if (lm != null) lm.sendExtraCommand("geoshift", "SET", b);
+            if (lm == null) return;
+            lm.sendExtraCommand("geoshift", "SET", b);
+            // The system hook plays the route itself; send the points once per route (or again after
+            // system_server restarted and lost them).
+            if (plan != null && (b.getBoolean("needRoute") || !plan.id.equals(routeSentId))) {
+                android.os.Bundle route = new android.os.Bundle();
+                route.putString("routeId", plan.id);
+                route.putDoubleArray("lat", plan.lat);
+                route.putDoubleArray("lon", plan.lon);
+                lm.sendExtraCommand("geoshift", "ROUTE", route);
+                if (route.getBoolean("ok")) routeSentId = plan.id;
+            }
         } catch (Exception ignored) {}
     }
 

@@ -16,5 +16,7 @@ public final class JSONObject {
     public String getString(String key) { return values.get(key).toString(); }
     public int getInt(String key) { return ((Number) values.get(key)).intValue(); }
     public int optInt(String key,int fallback) { Object v=values.get(key); return v instanceof Number ? ((Number)v).intValue() : fallback; }
+    public long optLong(String key,long fallback) { Object v=values.get(key); return v instanceof Number ? ((Number)v).longValue() : fallback; }
+    public long optLong(String key) { return optLong(key,0L); }
     public String optString(String key) { Object v=values.get(key); return v == null ? "" : v.toString(); }
 }

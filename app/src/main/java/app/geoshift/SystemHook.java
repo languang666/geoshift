@@ -33,9 +33,14 @@ import de.robv.android.xposed.XposedHelpers;
  *
  * Commands arrive through LocationManager.sendExtraCommand(provider = "geoshift", command, extras):
  *   PING   (app only)  -> extras: active, system, reports
- *   SET    (app only)  <- extras: config (JSON)
- *   GET    (any app)   -> extras: config
- *   REPORT (any app)   <- extras: feature, ok, error
+ *   SET    (app only)  <- extras: config (JSON), token (Binder);  -> needRoute
+ *   ROUTE  (app only)  <- extras: routeId, lat[], lon[]  (route points for RoutePlan)
+ *   GET    (trusted)   -> extras: config
+ *   REPORT (trusted)   <- extras: feature, ok, error
+ * Trusted = this app and system uids (phone, Bluetooth, ...). Any other caller, chosen in the app
+ * list or not, gets the stock behaviour (the call goes to the real service), so no ordinary app can
+ * tell the module is there. Like PortalDev, ordinary apps get no in-process hooks: the system side
+ * covers them.
  */
 final class SystemHook {
     static final String COMMAND_PROVIDER = "geoshift";
@@ -52,6 +57,10 @@ final class SystemHook {
     private static volatile long setAt;
     private static volatile IBinder appToken;
     private static volatile boolean systemLocation;
+    /** Last real fix per provider, for apps outside the chosen list in "selected" mode. */
+    private static final Map<String, Location> lastReal = new ConcurrentHashMap<>();
+    private static volatile long lastInjectAt;
+
     private static int ownUid = -1;
     private static final Set<Object> managers = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<Object, Boolean>()));
     private static final Map<String, JSONObject> reports = new ConcurrentHashMap<>();
@@ -75,12 +84,14 @@ final class SystemHook {
     private SystemHook() {}
 
     static void install(ClassLoader loader) {
+        try { AppScope.setContext(systemContext()); } catch (Throwable ignored) {}
         hookCommands(loader);
+        watchRegistrations(loader);
         try { new WifiPrivacyHooks(new WifiPrivacyHooks.Controller() {
             @Override public JSONObject activeFor(int uid) {
                 if (uid < 10000 || uid == ownUid()) return null;
                 JSONObject c = lsposedConfig();
-                if (c == null) return null;
+                if (c == null || !AppScope.covers(c, uid)) return null;
                 if (FakeEnvironment.wifiPreset(c) != null) return c;
                 return environmentActive() != null ? c : null;
             }
@@ -99,6 +110,8 @@ final class SystemHook {
                 if (c == null) return null;
                 return c.optJSONObject("settings").optBoolean("gnssEnabled") ? c : environmentActive();
             }
+            @Override public boolean covers(JSONObject c, int uid) { return AppScope.covers(c, uid); }
+            @Override public Location realFix(String provider) { return SystemHook.realFix(provider); }
             @Override public void report(String stage, String detail) { environmentReport(stage, detail); }
         }).install(loader); }
         catch (Throwable e) { environmentReport("error", "卫星/基站伪装入口安装失败：" + e.getClass().getSimpleName()); }
@@ -133,6 +146,8 @@ final class SystemHook {
         XposedBridge.hookAllMethods(service, "sendExtraCommand", new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam h) {
                 if (h.args.length < 3 || !COMMAND_PROVIDER.equals(h.args[0])) return;
+                int uid = Binder.getCallingUid();
+                if (!trusted(uid)) return; // Stock behaviour: the module stays invisible to this caller.
                 locationService = new WeakReference<>(h.thisObject);
                 // Android 12+ declares this method void; older versions return boolean.
                 boolean returnsBoolean = h.method instanceof java.lang.reflect.Method
@@ -140,7 +155,6 @@ final class SystemHook {
                 h.setResult(returnsBoolean ? Boolean.TRUE : null);
                 if (!(h.args[2] instanceof Bundle)) return;
                 Bundle extras = (Bundle) h.args[2];
-                int uid = Binder.getCallingUid();
                 try {
                     handle(String.valueOf(h.args[1]), extras, uid);
                 } catch (Throwable e) {
@@ -148,6 +162,11 @@ final class SystemHook {
                 }
             }
         });
+    }
+
+    /** Callers allowed to use the command channel at all. */
+    private static boolean trusted(int uid) {
+        return uid < 10000 || uid == ownUid();
     }
 
     private static void handle(String command, Bundle extras, int uid) throws Exception {
@@ -166,11 +185,24 @@ final class SystemHook {
                 setAt = SystemClock.elapsedRealtime();
                 watch(extras.getBinder("token"));
                 extras.putBoolean("ok", true);
+                String planId = config.optJSONObject("runtime") == null ? "" : config.optJSONObject("runtime").optString("planId", "");
+                RoutePlan plan = RoutePlan.installed();
+                extras.putBoolean("needRoute", !planId.isEmpty() && (plan == null || !planId.equals(plan.id)));
                 schedule(0);
                 break;
+            case "ROUTE": {
+                if (!own) return;
+                double[] lat = extras.getDoubleArray("lat"), lon = extras.getDoubleArray("lon");
+                String id = extras.getString("routeId", "");
+                if (lat == null || lon == null || lat.length != lon.length || lat.length < 2 || id.isEmpty()) return;
+                RoutePlan.install(new RoutePlan(id, lat, lon));
+                extras.putBoolean("ok", true);
+                schedule(0);
+                break;
+            }
             case "GET": {
                 JSONObject c = current();
-                if (c != null) extras.putString("config", c.toString());
+                if (c != null) extras.putString("config", withLivePosition(c).toString());
                 extras.putBoolean("system", systemLocation);
                 break;
             }
@@ -188,6 +220,17 @@ final class SystemHook {
             }
             default:
         }
+    }
+
+    /** Copy of the config with the live route position, for processes that do not hold the route. */
+    private static JSONObject withLivePosition(JSONObject c) throws Exception {
+        RoutePlan.Position p = RoutePlan.live(c);
+        if (p == null) return c;
+        JSONObject copy = new JSONObject(c.toString());
+        JSONObject r = copy.getJSONObject("runtime");
+        r.put("lat", p.lat).put("lon", p.lon).put("bearing", p.bearing);
+        r.remove("planId");
+        return copy;
     }
 
     private static String limited(String value, int max) { return value.length() > max ? value.substring(0, max) : value; }
@@ -278,6 +321,59 @@ final class SystemHook {
         } catch (Exception ignored) {}
     }
 
+    // ---- Callback owners and immediate first fix --------------------------------------------
+
+    /**
+     * Records which app owns each location / GNSS / phone-state callback (for "selected" mode), and
+     * pushes a simulated fix right after an app starts listening instead of at the next pump tick.
+     */
+    private static void watchRegistrations(ClassLoader loader) {
+        Class<?> lms = XposedHelpers.findClassIfExists("com.android.server.location.LocationManagerService", loader);
+        if (lms == null) lms = XposedHelpers.findClassIfExists("com.android.server.LocationManagerService", loader);
+        int hooks = CallbackOwners.watch(lms, (method, uid) -> {
+            String name = method.getName();
+            if (name.startsWith("registerLocation") || name.equals("getCurrentLocation")
+                    || name.equals("requestLocationUpdates")) kick();
+        });
+        hooks += CallbackOwners.watch(XposedHelpers.findClassIfExists("com.android.server.TelephonyRegistry", loader), null);
+        XposedBridge.log("Geoshift callback owner hooks: " + hooks);
+    }
+
+    /** Runs the pump soon (at most every 200 ms) so a new listener gets a fix at once. */
+    private static void kick() {
+        if (locationActive() == null) return;
+        long since = SystemClock.elapsedRealtime() - lastInjectAt;
+        schedule(since >= 200 ? 30 : 200 - since);
+    }
+
+    /** Last real fix of a provider, for apps the simulation does not cover. */
+    static Location realFix(String provider) {
+        Location l = lastReal.get(provider == null ? "gps" : provider);
+        if (l == null) l = lastReal.get("fused");
+        if (l == null) l = lastReal.get("gps");
+        if (l == null) l = lastReal.get("network");
+        return l == null ? null : new Location(l);
+    }
+
+    /** Owner uid of a provider request / registration identity argument, or -1. */
+    private static int identityUid(Object[] args) {
+        for (Object a : args) {
+            if (a != null && a.getClass().getName().endsWith("CallerIdentity")) {
+                try { return (int) XposedHelpers.callMethod(a, "getUid"); } catch (Throwable ignored) {}
+            }
+        }
+        return -1;
+    }
+
+    /** True when a fix is (close to) the simulated position, i.e. it must not reach an uncovered app. */
+    static boolean nearSimulated(JSONObject c, Location l) {
+        if (l == null) return false;
+        try {
+            Location fake = FakeLocation.build(c, "fused");
+            return Geo.distance(fake.getLatitude(), fake.getLongitude(), l.getLatitude(), l.getLongitude()) < 500;
+        } catch (Exception e) { return false; }
+    }
+
     // ---- Location injection (Android 12+) -----------------------------------------------------
 
     private static void hookProviderManagers(ClassLoader loader) {
@@ -296,6 +392,16 @@ final class SystemHook {
                 if (c == null || h.args.length == 0 || h.args[0] == null) return;
                 String name = nameOf(h.thisObject);
                 if (!INJECT_PROVIDERS.contains(name) && !"passive".equals(name)) return;
+                if (AppScope.selectedOnly(c)) {
+                    // Real fixes keep flowing for the apps not chosen; each delivery decides per app.
+                    if (INJECT_PROVIDERS.contains(name)) {
+                        try {
+                            Object last = XposedHelpers.callMethod(h.args[0], "getLastLocation");
+                            if (last instanceof Location) lastReal.put(name, new Location((Location) last));
+                        } catch (Throwable ignored) {}
+                    }
+                    return;
+                }
                 if (INJECT_PROVIDERS.contains(name)) {
                     // Drop real reports while simulating; the pump delivers the simulated fix at the set
                     // interval. Replacing them instead loops: a fused provider listening passively sees
@@ -322,6 +428,12 @@ final class SystemHook {
                         || ((java.lang.reflect.Method) h.method).getReturnType() != Location.class) return;
                 String name = nameOf(h.thisObject);
                 if (!INJECT_PROVIDERS.contains(name) && !"passive".equals(name)) return;
+                if (AppScope.selectedOnly(c) && !AppScope.covers(c, identityUid(h.args))) {
+                    // Not chosen: the real last fix, never a simulated one left in the provider cache.
+                    Object result = h.getResult();
+                    if (result instanceof Location && nearSimulated(c, (Location) result)) h.setResult(realFix(providerFor(name)));
+                    return;
+                }
                 try {
                     h.setResult(FakeLocation.build(c, providerFor(name)));
                     noteProvider(name);
@@ -335,13 +447,34 @@ final class SystemHook {
         if (reportHooks == 0 || lastHooks == 0) throw new IllegalStateException("定位入口缺失：report=" + reportHooks + ", last=" + lastHooks);
     }
 
+    /** Registration classes nested in LocationProviderManager (Android 12-16). */
+    private static final String[] REGISTRATIONS = {"$Registration", "$LocationRegistration", "$LocationListenerRegistration",
+            "$LocationPendingIntentRegistration", "$GetCurrentLocationListenerRegistration"};
+
     private static int hookDeliveries(Class<?> manager) {
         int count = 0;
-        for (Method method : DeliveryTargets.find(manager)) {
+        // Optimised system jars drop the inner-class metadata getDeclaredClasses() relies on, so the
+        // registration classes are also looked up by name.
+        java.util.Set<Method> methods = new java.util.LinkedHashSet<>(DeliveryTargets.find(manager));
+        for (String suffix : REGISTRATIONS) {
+            Class<?> type = XposedHelpers.findClassIfExists(manager.getName() + suffix, manager.getClassLoader());
+            if (type != null) methods.addAll(DeliveryTargets.find(type));
+        }
+        for (Method method : methods) {
                 XposedBridge.hookMethod(method, new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam h) {
                         JSONObject c = locationActive();
                         if (c == null || h.args[0] == null) return;
+                        if (AppScope.selectedOnly(c) && !AppScope.covers(c, registrationUid(h.thisObject))) {
+                            // Not chosen: drop the pump's simulated fixes, and a simulated fix replayed
+                            // from the provider cache on registration; real ones go through.
+                            if (INJECTING.get()) { h.setResult(null); return; }
+                            try {
+                                Object last = XposedHelpers.callMethod(h.args[0], "getLastLocation");
+                                if (last instanceof Location && nearSimulated(c, (Location) last)) h.setResult(null);
+                            } catch (Throwable ignored) {}
+                            return;
+                        }
                         try {
                             Object last = XposedHelpers.callMethod(h.args[0], "getLastLocation");
                             if (!(last instanceof Location)) return;
@@ -360,6 +493,13 @@ final class SystemHook {
                 count++;
         }
         return count;
+    }
+
+    private static int registrationUid(Object registration) {
+        try {
+            Object identity = XposedHelpers.callMethod(registration, "getIdentity");
+            return (int) XposedHelpers.callMethod(identity, "getUid");
+        } catch (Throwable e) { return -1; }
     }
 
     private static synchronized void wifiReport(Throwable error, String stage, String detail) {
@@ -423,6 +563,7 @@ final class SystemHook {
      * so apps keep receiving updates even when there is no real GPS / network signal.
      */
     private static void injectAll() {
+        lastInjectAt = SystemClock.elapsedRealtime();
         JSONObject c = locationActive();
         if (c == null) return; // Lease expired or simulation off: stop until the next SET.
         // Providers can exist before our constructor hook is installed. Discover them from the

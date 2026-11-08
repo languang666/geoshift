@@ -176,16 +176,33 @@ final class FakeEnvironment {
     private static final float[] CARRIER_HZ = {1575.42e6f, 1561.098e6f, 1575.42e6f, 1602.0e6f};
     private static final int[] MAX_SVID = {32, 63, 36, 24};
 
+    /** One simulated satellite. */
+    static final class Sat {
+        final int constellation, svid;
+        final float carrierHz;
+        final double elevation, azimuth, cn0;
+        final boolean used;
+
+        Sat(int constellation, int svid, float carrierHz, double elevation, double azimuth, double cn0, boolean used) {
+            this.constellation = constellation;
+            this.svid = svid;
+            this.carrierHz = carrierHz;
+            this.elevation = elevation;
+            this.azimuth = azimuth;
+            this.cn0 = cn0;
+            this.used = used;
+        }
+    }
+
     /**
      * Simulated sky. Satellites keep fixed ids but drift across the sky over minutes and their signal
      * strength wobbles, as a real receiver would show; values follow the clock, so all apps agree.
+     * GnssStatus and NMEA are both built from this, so they always match.
      */
-    @androidx.annotation.RequiresApi(30)
-    static GnssStatus gnss(JSONObject config) {
-        JSONObject s = config.optJSONObject("settings");
+    static java.util.List<Sat> sky(JSONObject config) {
         int count = satelliteCount(config), used = satellitesUsed(count);
         double minutes = SystemClock.elapsedRealtime() / 60000.0;
-        GnssStatus.Builder b = new GnssStatus.Builder();
+        java.util.List<Sat> out = new java.util.ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             int k = i % CONSTELLATIONS.length;
             int svid = 1 + (i / CONSTELLATIONS.length * 7 + k * 3) % MAX_SVID[k];
@@ -194,9 +211,17 @@ final class FakeEnvironment {
             if (CONSTELLATIONS[k] == GnssStatus.CONSTELLATION_GLONASS) carrier += (svid % 14 - 7) * 0.5625e6f;
             double elevation = elevation(i, minutes);
             double azimuth = ((i * 137) % 360 + minutes * 0.5 * (i % 2 == 0 ? 1 : -1) + 360) % 360;
-            double cn0 = cn0(i, minutes);
-            b.addSatellite(CONSTELLATIONS[k], svid, (float) cn0, (float) elevation, (float) azimuth,
-                    true, true, i < used, true, carrier, false, 0);
+            out.add(new Sat(CONSTELLATIONS[k], svid, carrier, elevation, azimuth, cn0(i, minutes), i < used));
+        }
+        return out;
+    }
+
+    @androidx.annotation.RequiresApi(30)
+    static GnssStatus gnss(JSONObject config) {
+        GnssStatus.Builder b = new GnssStatus.Builder();
+        for (Sat t : sky(config)) {
+            b.addSatellite(t.constellation, t.svid, (float) t.cn0, (float) t.elevation, (float) t.azimuth,
+                    true, true, t.used, true, t.carrierHz, false, 0);
         }
         return b.build();
     }

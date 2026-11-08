@@ -58,6 +58,8 @@ public final class PortalHook implements IXposedHookLoadPackage {
             return;
         }
         if (SELF.equals(p.packageName)) return;
+        // Ordinary apps are covered from the system side; their command calls would be refused anyway.
+        if (p.appInfo != null && p.appInfo.uid >= 10000) return;
         processName = p.processName == null ? p.packageName : p.processName;
         // One hook per process: shared processes (com.android.phone) load several packages.
         if (!attachHooked) {
@@ -79,6 +81,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
     private static void attached(Context app, XC_LoadPackage.LoadPackageParam p) {
         if (app == null) return;
         context = app;
+        AppScope.setContext(app);
         if ("com.android.phone".equals(p.packageName) || "com.android.phone".equals(p.processName))
             installPhone(p.classLoader, app.getClassLoader());
         else if (BLUETOOTH_PACKAGES.contains(p.packageName) || BLUETOOTH_PACKAGES.contains(p.processName))
@@ -183,7 +186,8 @@ public final class PortalHook implements IXposedHookLoadPackage {
         if (!installed.add("__bluetooth_hooks__")) return;
         XC_MethodHook drop = new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam h) {
-                if (active("environment") == null) return;
+                JSONObject c = active("environment");
+                if (c == null || !AppScope.covers(c, scanOwner(h))) return;
                 h.setResult(null);
                 long n = bleDrops.incrementAndGet();
                 report("bluetooth", null, "read", "已拦截蓝牙扫描结果 " + n + " 次");
@@ -199,18 +203,36 @@ public final class PortalHook implements IXposedHookLoadPackage {
                 hooks += XposedBridge.hookAllMethods(proxy, name, drop).size();
         }
         // PendingIntent-based scans. The class holding this method moved between Android versions.
+        // The same classes register scan callbacks, which tells whose callback each proxy is.
         for (String className : new String[]{"com.android.bluetooth.le_scan.TransitionalScanHelper",
                 "com.android.bluetooth.le_scan.ScanController", "com.android.bluetooth.gatt.GattService"}) {
             for (ClassLoader loader : loaders) {
                 Class<?> type = XposedHelpers.findClassIfExists(className, loader);
                 if (type == null || !seen.add(type)) continue;
                 hooks += XposedBridge.hookAllMethods(type, "sendResultsByPendingIntent", drop).size();
+                CallbackOwners.watch(type, null);
+                for (Class<?> inner : type.getDeclaredClasses()) CallbackOwners.watch(inner, null);
             }
         }
         XposedBridge.log("Geoshift bluetooth scan hooks: " + hooks);
         if (hooks == 0) installed.remove("__bluetooth_hooks__");
         report("bluetooth", hooks == 0 ? new IllegalStateException("IScannerCallback") : null,
                 hooks == 0 ? "error" : "installed", hooks == 0 ? "蓝牙进程未找到扫描结果入口" : "蓝牙扫描伪装入口已安装（" + hooks + " 处）");
+    }
+
+    /** Owner uid of a scan delivery: the callback proxy's registrant, or a PendingIntent's creator. */
+    private static int scanOwner(XC_MethodHook.MethodHookParam h) {
+        if ("sendResultsByPendingIntent".equals(h.method.getName())) {
+            for (Object a : h.args) {
+                if (a == null) continue;
+                try {
+                    Object pi = a instanceof android.app.PendingIntent ? a : XposedHelpers.getObjectField(a, "intent");
+                    if (pi instanceof android.app.PendingIntent) return ((android.app.PendingIntent) pi).getCreatorUid();
+                } catch (Throwable ignored) {}
+            }
+            return -1;
+        }
+        return CallbackOwners.ownerOf(h.thisObject);
     }
 
     /** Config while the phone process should answer apps with simulated cells (or none), else null. */
@@ -269,7 +291,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
             @Override protected void afterHookedMethod(MethodHookParam h) {
                 if (Binder.getCallingUid() < 10000 || h.hasThrowable()) return;
                 JSONObject c = phoneCells();
-                if (c == null) return;
+                if (c == null || !AppScope.covers(c, Binder.getCallingUid())) return;
                 try {
                     Class<?> result = ((Method) h.method).getReturnType();
                     String name = h.method.getName();
@@ -293,7 +315,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
             @Override protected void beforeHookedMethod(MethodHookParam h) {
                 if (Binder.getCallingUid() < 10000) return;
                 JSONObject c = phoneCells();
-                if (c == null) return;
+                if (c == null || !AppScope.covers(c, Binder.getCallingUid())) return;
                 for (Object a : h.args) {
                     if (a == null || !implementsInterface(a.getClass(), "android.telephony.ICellInfoCallback")) continue;
                     try {

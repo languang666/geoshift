@@ -83,6 +83,8 @@ data class SettingsState(
     val protectWifi: Boolean,
     /** LSPosed: hide real Wi-Fi, cells and satellites from apps while simulating. */
     val spoofEnvironment: Boolean,
+    /** "all": every app sees the simulation; "selected": only the apps in allowedPackages. */
+    val appScope: String,
 ) {
     val lsposed get() = backend == "lsposed"
     val allowedList get() = allowedPackages.split(Regex("[,\\s]+")).filter { it.isNotBlank() }
@@ -108,6 +110,7 @@ data class SettingsState(
             mapSource = MapSource.fromKey(o.optString("mapSource", "osm")),
             protectWifi = o.optBoolean("protectWifi"),
             spoofEnvironment = o.optBoolean("spoofEnvironment", true) || o.optBoolean("protectWifi"),
+            appScope = o.optString("appScope", "all").takeIf { it == "selected" } ?: "all",
         )
     }
 }

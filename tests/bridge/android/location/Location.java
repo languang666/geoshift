@@ -8,14 +8,16 @@ public class Location {
     private long time,elapsed;
     private boolean mock;
     public Location(String provider){this.provider=provider;}
+    public Location(Location o){this(o.provider);lat=o.lat;lon=o.lon;alt=o.alt;accuracy=o.accuracy;speed=o.speed;bearing=o.bearing;time=o.time;}
     public String getProvider(){return provider;}
     public double getLatitude(){return lat;} public void setLatitude(double v){lat=v;}
     public double getLongitude(){return lon;} public void setLongitude(double v){lon=v;}
     public double getAltitude(){return alt;} public void setAltitude(double v){alt=v;}
     public float getAccuracy(){return accuracy;} public void setAccuracy(float v){accuracy=v;}
     public void setExtras(Bundle v){extras=v;}
-    public float getSpeed(){return speed;} public void setSpeed(float v){speed=v;}
-    public float getBearing(){return bearing;} public void setBearing(float v){bearing=v;}
+    private boolean hasSpeed,hasBearing; public boolean hasSpeed(){return hasSpeed;} public boolean hasBearing(){return hasBearing;}
+    public float getSpeed(){return speed;} public void setSpeed(float v){speed=v;hasSpeed=true;}
+    public float getBearing(){return bearing;} public void setBearing(float v){bearing=v;hasBearing=true;}
     public long getTime(){return time;} public void setTime(long v){time=v;}
     public long getElapsedRealtimeNanos(){return elapsed;} public void setElapsedRealtimeNanos(long v){elapsed=v;}
     public boolean isMock(){return mock;} public void setMock(boolean v){mock=v;}

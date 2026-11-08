@@ -407,6 +407,11 @@ class PortalActions(context: Context) {
                     fail("请输入完整包名，多个包名用逗号或换行分隔。")
             next.put("allowedPackages", n)
         }
+        if (patch.has("appScope")) {
+            val n = patch.getString("appScope")
+            if (n != "all" && n != "selected") fail("模拟范围无效。")
+            next.put("appScope", n)
+        }
         if (patch.has("mapSource")) {
             val source = patch.getString("mapSource")
             if (source !in MapSource.entries.map { it.key }) fail("地图类型无效。")

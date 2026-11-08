@@ -33,8 +33,6 @@ public final class SimulationService extends Service {
     private final Runnable ticker = this::tick;
     private LocationManager manager;
     private boolean providers;
-    private long previous;
-    private double segmentDistance;
 
     // ---- Public entry points ------------------------------------------------------------------
 
@@ -109,15 +107,18 @@ public final class SimulationService extends Service {
                     double[][] route = PortalStore.routeCoordinates(this);
                     if (route[0].length < 2) throw new Exception("请先选择至少两个点的路线。");
                     PortalStore.updateRuntime(this, PortalStore.obj("lat", route[0][0],
-                            "lon", route[1][0], "routeIndex", 0, "progress", 0));
-                    segmentDistance = 0;
+                            "lon", route[1][0], "routeIndex", 0, "progress", 0, "routeAnchorDist", 0,
+                            "routeAnchorAt", SystemClock.elapsedRealtime(), "routeSpeed", PortalStore.speed(s)));
                 }
-                previous = 0;
                 PortalStore.updateRuntime(this, PortalStore.obj("enabled", true, "paused", false, "error", ""));
             } else if ("PAUSE".equals(action)) {
-                PortalStore.updateRuntime(this, PortalStore.obj("paused", true, "speed", 0));
+                JSONObject r = PortalStore.runtimeLight(this);
+                long now = SystemClock.elapsedRealtime();
+                // Freeze the route where it is now; RESUME continues from this distance.
+                PortalStore.updateRuntime(this, PortalStore.obj("paused", true, "speed", 0,
+                        "routeAnchorDist", RoutePlan.distanceAt(r, now), "routeAnchorAt", now));
             } else if ("RESUME".equals(action)) {
-                PortalStore.updateRuntime(this, PortalStore.obj("paused", false));
+                PortalStore.updateRuntime(this, PortalStore.obj("paused", false, "routeAnchorAt", SystemClock.elapsedRealtime()));
             }
             JSONObject state = PortalStore.runtimeLight(this);
             if (!state.optBoolean("enabled")) {
@@ -196,12 +197,9 @@ public final class SimulationService extends Service {
             return;
         }
         try {
-            long now = SystemClock.elapsedRealtime();
-            double dt = previous == 0 ? 0 : Math.min(3, Math.max(0, (now - previous) / 1000.0));
-            previous = now;
             boolean route = "route".equals(r.optString("mode"));
             if (route && !r.optBoolean("paused")) {
-                advance(r, s, dt);
+                advance(r, s);
                 r = PortalStore.runtimeLight(this);
             }
             if (providers) {
@@ -221,38 +219,36 @@ public final class SimulationService extends Service {
         }
     }
 
-    private void advance(JSONObject r, JSONObject s, double dt) throws Exception {
-        double[][] route = PortalStore.routeCoordinates(this);
-        double[] lats = route[0], lons = route[1];
-        if (lats.length < 2) throw new Exception("当前路线无效。");
-        int last = lats.length - 1;
-        int index = Math.max(0, r.optInt("routeIndex", 0));
+    /**
+     * Route position from the anchor (see RoutePlan), so a late or skipped tick never loses distance
+     * and the system hook, which computes the same thing on its own, always agrees with the app.
+     */
+    private void advance(JSONObject r, JSONObject s) throws Exception {
+        RoutePlan plan = PortalStore.routePlan(this);
+        if (plan.lat.length < 2) throw new Exception("当前路线无效。");
+        long now = SystemClock.elapsedRealtime();
         double speed = PortalStore.speed(s);
-        double remaining = speed * dt;
-        while (index < last) {
-            double length = Geo.distance(lats[index], lons[index], lats[index + 1], lons[index + 1]);
-            if (length < 0.01 || segmentDistance + remaining >= length) {
-                remaining = Math.max(0, remaining - (length - segmentDistance));
-                segmentDistance = 0;
-                index++;
-                continue;
-            }
-            segmentDistance += remaining;
-            break;
+        if (!r.has("routeAnchorAt")) {
+            // Started by an older build: begin from the stored segment.
+            int index = Math.min(Math.max(0, r.optInt("routeIndex", 0)), plan.lat.length - 1);
+            PortalStore.updateRuntime(this, PortalStore.obj("routeAnchorDist", plan.cumulative[index],
+                    "routeAnchorAt", now, "routeSpeed", speed));
+            r = PortalStore.runtimeLight(this);
+        } else if (Math.abs(r.optDouble("routeSpeed", 0) - speed) > 1e-9) {
+            // Speed setting changed: continue from here at the new speed.
+            PortalStore.updateRuntime(this, PortalStore.obj("routeAnchorDist", RoutePlan.distanceAt(r, now),
+                    "routeAnchorAt", now, "routeSpeed", speed));
+            r = PortalStore.runtimeLight(this);
         }
-        if (index >= last) {
-            PortalStore.updateRuntime(this, PortalStore.obj("lat", lats[last], "lon", lons[last],
-                    "routeIndex", index, "progress", 1, "paused", true, "speed", 0));
+        RoutePlan.Position p = plan.at(RoutePlan.distanceAt(r, now));
+        if (p.finished) {
+            PortalStore.updateRuntime(this, PortalStore.obj("lat", p.lat, "lon", p.lon, "routeIndex", p.index,
+                    "progress", 1, "paused", true, "speed", 0, "routeAnchorDist", plan.total, "routeAnchorAt", now));
             PortalStore.log(this, "路线已完成，保持终点位置；可手动停止定位服务。");
             return;
         }
-        double aLat = lats[index], aLon = lons[index], bLat = lats[index + 1], bLon = lons[index + 1];
-        double length = Geo.distance(aLat, aLon, bLat, bLon);
-        double fraction = length < 0.01 ? 0 : segmentDistance / length;
-        double[] p = Geo.interpolate(aLat, aLon, bLat, bLon, fraction);
-        PortalStore.updateRuntime(this, PortalStore.obj("lat", p[0], "lon", p[1],
-                "bearing", Geo.bearing(aLat, aLon, bLat, bLon), "speed", speed,
-                "routeIndex", index, "progress", (index + fraction) / last));
+        PortalStore.updateRuntime(this, PortalStore.obj("lat", p.lat, "lon", p.lon, "bearing", p.bearing,
+                "speed", speed * RoutePlan.speedFactor(now / 1000.0), "routeIndex", p.index, "progress", p.progress));
     }
 
     private void emit(JSONObject r, JSONObject s) throws Exception {

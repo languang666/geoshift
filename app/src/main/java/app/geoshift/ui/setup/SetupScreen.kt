@@ -140,7 +140,7 @@ fun SetupScreen(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> U
                     style = MaterialTheme.typography.bodySmall,
                     color = if (s.caps.systemHook) Success else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text("更改作用域后重启手机。模拟期间系统会对所有应用伪装定位、Wi-Fi、基站和卫星（可在设置中关闭环境伪装）。部分设备的接口可能不同，实际效果需要逐项验证。\n个别应用仍显示真实位置时，可在作用域里额外勾选该应用，然后强行停止它再打开：应用内会再隐藏一遍 Wi-Fi、基站并替换定位。",
+                Text("更改作用域后重启手机。模拟期间系统会对所有应用伪装定位、Wi-Fi、基站和卫星（可在设置中关闭环境伪装）。部分设备的接口可能不同，实际效果需要逐项验证。\n不要在作用域里勾选普通应用：系统层已经覆盖所有应用，在应用里注入反而更容易被检测。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

@@ -14,7 +14,14 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-feature android:name="android.hardware.location.gps" android:required="false"/>
     <uses-feature android:name="android.hardware.telephony" android:required="false"/>
-    <queries><package android:name="org.lsposed.manager"/></queries>
+    <queries>
+        <package android:name="org.lsposed.manager"/>
+        <!-- App picker for "模拟范围": launchable apps only, no QUERY_ALL_PACKAGES. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+    </queries>
 
     <application
         android:label="Geoshift"
