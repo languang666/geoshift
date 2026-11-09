@@ -133,7 +133,7 @@ fun SetupScreen(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> U
                 Spacer(Modifier.size(10.dp))
                 Text(
                     when {
-                        s.caps.systemHook -> "✓ 系统框架定位入口已安装；请到「模拟 → 系统定位诊断」查看 gps / network / fused 和实际交付改写。"
+                        s.caps.systemHook -> "✓ 系统框架定位入口已安装；可在「控制台 → 系统诊断」查看各入口状态。"
                         s.caps.hookActive -> "模块已连接，系统定位入口尚未确认。请检查系统兼容性和 LSPosed 模块日志。"
                         else -> "模块尚未连接。"
                     },

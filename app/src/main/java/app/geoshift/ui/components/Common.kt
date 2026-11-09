@@ -1,5 +1,6 @@
 package app.geoshift.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -39,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.Success
 import app.geoshift.ui.theme.Warning
@@ -46,7 +52,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Rounded white card used across all screens. */
+/** Flat card with a hairline border, used across all screens. */
 @Composable
 fun PortalCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(20.dp)
@@ -54,23 +60,38 @@ fun PortalCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, con
         modifier = modifier.fillMaxWidth().clip(shape).let { if (onClick != null) it.clickable(onClick = onClick) else it },
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 0.dp,
-        shadowElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(16.dp), content = content)
     }
 }
 
+/** Large page title under the status bar, with optional actions on the right. */
+@Composable
+fun PageHeader(title: String, subtitle: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        actions()
+    }
+}
+
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(start = 20.dp, top = 20.dp, bottom = 8.dp))
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp,
+        modifier = modifier.padding(start = 24.dp, top = 20.dp, bottom = 8.dp))
 }
 
 /** Tinted rounded icon square. */
 @Composable
 fun IconBadge(icon: ImageVector, tint: Color = MaterialTheme.colorScheme.primary, size: Int = 40) {
-    Box(Modifier.size(size.dp).clip(RoundedCornerShape(12.dp)).background(tint.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.3f).dp)).background(tint.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = tint, modifier = Modifier.size((size * 0.55f).dp))
     }
 }
@@ -90,12 +111,13 @@ fun SettingRow(
     val click = onClick ?: if (checked != null && onCheckedChange != null) ({ onCheckedChange(!checked) }) else null
     Row(
         Modifier.fillMaxWidth().let { if (click != null && enabled) it.clickable(onClick = click) else it }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            IconBadge(icon, size = 36)
-            Spacer(Modifier.width(14.dp))
+            Icon(icon, null, tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(16.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge,
@@ -104,11 +126,11 @@ fun SettingRow(
         }
         if (value != null) {
             Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).widthIn(max = 150.dp))
         }
         when {
             checked != null -> Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange, modifier = Modifier.padding(start = 8.dp))
-            onClick != null -> Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            onClick != null -> Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
         }
     }
 }
@@ -120,9 +142,59 @@ fun SettingGroup(content: @Composable ColumnScope.() -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shadowElevation = 1.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(vertical = 4.dp), content = content)
+    }
+}
+
+/** Hairline between rows of a [SettingGroup], aligned with the row text. */
+@Composable
+fun RowDivider(icon: Boolean = true) =
+    HorizontalDivider(Modifier.padding(start = if (icon) 54.dp else 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+/**
+ * Console tile: icon, title and state; tinted when on. Tap toggles or opens, as the caller decides.
+ */
+@Composable
+fun ToggleTile(
+    icon: ImageVector,
+    title: String,
+    state: String,
+    on: Boolean,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.tertiary
+    val shape = RoundedCornerShape(20.dp)
+    Surface(
+        modifier = modifier.clip(shape).clickable(enabled = enabled, onClick = onClick),
+        shape = shape,
+        color = if (on) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = if (on) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(38.dp).clip(CircleShape)
+                    .background(if (on) accent else MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, null, Modifier.size(20.dp),
+                    tint = when {
+                        on -> MaterialTheme.colorScheme.surface
+                        enabled -> MaterialTheme.colorScheme.onSurface
+                        else -> MaterialTheme.colorScheme.outline
+                    })
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(state, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (on) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
@@ -142,8 +214,8 @@ fun StatusPill(text: String, tone: Tone) {
 
 @Composable
 fun EmptyState(icon: ImageVector, title: String, detail: String, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        IconBadge(icon, tint = MaterialTheme.colorScheme.onSurfaceVariant, size = 64)
+    Column(modifier.fillMaxWidth().padding(vertical = 56.dp, horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        IconBadge(icon, tint = MaterialTheme.colorScheme.primary, size = 72)
         Spacer(Modifier.size(16.dp))
         Text(title, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.size(6.dp))

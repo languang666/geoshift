@@ -1,6 +1,7 @@
 package app.geoshift.ui.settings
 
-import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Build
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,10 @@ import app.geoshift.ui.PortalViewModel
 import app.geoshift.ui.components.ConfirmDialog
 import app.geoshift.ui.components.InputDialog
 import app.geoshift.ui.components.SectionTitle
+import app.geoshift.ui.components.PageHeader
+import app.geoshift.ui.components.RowDivider
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.runtime.saveable.rememberSaveable
 import app.geoshift.ui.components.SettingGroup
 import app.geoshift.ui.components.SettingRow
 import app.geoshift.ui.components.formatNumber
@@ -93,6 +98,7 @@ fun SettingsScreen(
     var appScope by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var text by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var advanced by rememberSaveable { mutableStateOf(false) }
 
     fun save(key: String, value: Any, message: String? = "设置已应用") =
         vm.run(message) { saveSettings(JSONObject().put(key, value)) }
@@ -101,101 +107,111 @@ fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(bottom = contentPadding.calculateBottomPadding() + 24.dp),
     ) {
-        Text("设置", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
-            modifier = Modifier.statusBarsPadding().padding(start = 20.dp, top = 12.dp, bottom = 4.dp))
+        PageHeader("设置")
 
-        SectionTitle("模拟模式")
+        SectionTitle("模拟方式")
         SettingGroup {
-            SettingRow("模拟类型", if (st.lsposed) "LSPosed 系统级模拟（无需选择模拟位置应用）" else "标准 Android 模拟位置",
+            SettingRow("模拟类型", if (st.lsposed) "系统级，无需选择模拟位置应用" else "系统会保留模拟标记",
                 icon = Icons.Rounded.Tune, value = if (st.lsposed) "LSPosed" else "标准", onClick = { choice = "backend" })
-            Divider()
-            SettingRow("权限与模块检查", if (s.caps.systemHook) "系统入口已安装，目标应用效果需看实际命中" else if (s.caps.hookActive) "LSPosed 模块已连接" else if (st.lsposed) "未检测到LSPosed" else "查看授权与模拟位置应用状态",
-                icon = Icons.Rounded.VerifiedUser, onClick = onOpenSetup)
-            Divider()
-            SettingRow("模拟范围", if (st.lsposed) "选择哪些应用看到模拟位置，其他应用保持真实" else "仅 LSPosed 模式可用",
+            RowDivider()
+            SettingRow("模拟范围", if (st.lsposed) "其他应用保持真实位置" else "仅 LSPosed 模式可用",
                 icon = Icons.Rounded.Apps, enabled = st.lsposed,
-                value = if (st.appScope == "selected") "选中的 ${st.allowedList.size} 个应用" else "所有应用",
+                value = if (st.appScope == "selected") "${st.allowedList.size} 个应用" else "所有应用",
                 onClick = { if (st.lsposed) appScope = true })
+            RowDivider()
+            SettingRow("权限与模块", if (s.caps.systemHook) "系统入口已安装" else if (s.caps.hookActive) "模块已连接" else if (st.lsposed) "未检测到 LSPosed 模块" else "授权与模拟位置应用状态",
+                icon = Icons.Rounded.VerifiedUser, onClick = onOpenSetup)
         }
 
-        SectionTitle("位置模拟设置")
+        SectionTitle("定位参数")
         SettingGroup {
-            SettingRow("上报时间间隔", "设置位置上报的时间间隔", icon = Icons.Rounded.Timer, value = "${st.interval} 毫秒",
-                onClick = { number = NUMBER_SETTINGS["interval"] })
-            Divider()
             SettingRow("移动模式", "路线与摇杆的基础速度", icon = Icons.AutoMirrored.Rounded.DirectionsWalk, value = st.speedMode.label, onClick = { choice = "speedMode" })
-            Divider()
-            SettingRow("速度倍率", "设置摇杆与路线移动速度倍率", icon = Icons.Rounded.Speed, value = "×${formatNumber(st.speedMultiplier)}",
+            RowDivider()
+            SettingRow("速度倍率", null, icon = Icons.Rounded.Speed, value = "×${formatNumber(st.speedMultiplier)}",
                 onClick = { number = NUMBER_SETTINGS["speedMultiplier"] })
-            Divider()
-            SettingRow("模拟海拔高度", "设置模拟位置的海拔高度（米）", icon = Icons.Rounded.Terrain, value = "${formatNumber(st.altitude)} 米",
-                onClick = { number = NUMBER_SETTINGS["altitude"] })
-            Divider()
-            SettingRow("位置精度", "设置模拟位置的精度值（米）", icon = Icons.Rounded.GpsFixed, value = "${formatNumber(st.accuracy)} 米",
+            RowDivider()
+            SettingRow("位置精度", null, icon = Icons.Rounded.GpsFixed, value = "${formatNumber(st.accuracy)} 米",
                 onClick = { number = NUMBER_SETTINGS["accuracy"] })
+            RowDivider()
+            SettingRow("海拔高度", null, icon = Icons.Rounded.Terrain, value = "${formatNumber(st.altitude)} 米",
+                onClick = { number = NUMBER_SETTINGS["altitude"] })
+            RowDivider()
+            SettingRow("随机抖动", "每秒额外偏移不超过 1 米", icon = Icons.Rounded.Shuffle, checked = st.jitter,
+                onCheckedChange = { save("jitter", it, if (it) "位置随机抖动已开启" else "位置随机抖动已关闭") })
         }
-        Spacer12()
+
+        SectionTitle("隐私保护")
         SettingGroup {
-            SettingRow("伪装 Wi-Fi、基站、卫星和蓝牙", "LSPosed 模式：模拟期间应用只能看到预设 Wi-Fi / 基站（未设置则为空）、模拟卫星，且扫描不到蓝牙设备（已连接的设备不受影响），防止定位 SDK 用真实信号反查位置",
+            SettingRow("隐藏真实信号", "模拟时应用只看到预设的 Wi-Fi、基站和模拟卫星，扫描不到蓝牙设备，防止用真实信号反查位置",
                 icon = Icons.Rounded.PrivacyTip, checked = st.spoofEnvironment, enabled = st.lsposed,
                 onCheckedChange = { on ->
                     vm.run(if (on) "已开启环境伪装，模拟时生效" else "已关闭环境伪装，应用可能用真实 Wi-Fi / 基站 / 蓝牙算出真实位置") {
                         saveSettings(JSONObject().put("spoofEnvironment", on).put("protectWifi", false))
                     }
                 })
-            Divider()
-            SettingRow("位置随机抖动", "启用后位置信息将添加随机微小偏移", icon = Icons.Rounded.Shuffle, checked = st.jitter,
-                onCheckedChange = { save("jitter", it, if (it) "位置随机抖动已开启" else "位置随机抖动已关闭") })
-            Divider()
-            SettingRow("定位增强服务", "启用后将按照上报间隔循环广播位置", icon = Icons.Rounded.Autorenew, checked = st.enhanced,
-                onCheckedChange = { save("enhanced", it, if (it) "位置增强服务已开启" else "位置增强服务已关闭") })
-            Divider()
-            SettingRow("二次上报", "启用摇杆数据的二次确认上报", icon = Icons.Rounded.Repeat, checked = st.secondReport,
-                onCheckedChange = { save("secondReport", it, if (it) "摇杆二次上报已开启" else "摇杆二次上报已关闭") })
-            Divider()
-            SettingRow("调试模式", "开启后将显示更多调试信息", icon = Icons.Rounded.BugReport, checked = st.debug,
-                onCheckedChange = { save("debug", it) })
         }
 
         SectionTitle("地图与外观")
         SettingGroup {
-            SettingRow("地图图层", "无需任何 Key，可随时切换，也可使用地图右侧图层按钮", icon = Icons.Rounded.Place,
-                value = st.mapSource.label, onClick = { choice = "mapSource" })
-            Divider()
-            SettingRow("高德 Web 服务 Key（可选）", "不填也能搜索、显示地址和规划道路；填写后改用高德数据，国内小店和新地点更全", icon = Icons.Rounded.Key,
+            SettingRow("地图图层", null, icon = Icons.Rounded.Layers, value = st.mapSource.label, onClick = { choice = "mapSource" })
+            RowDivider()
+            SettingRow("高德 Key", "可选，填写后搜索和路线用高德数据", icon = Icons.Rounded.Key,
                 value = if (st.mapKeyConfigured) "已设置" else "未设置", onClick = { mapKey = true })
-            Divider()
+            RowDivider()
             SettingRow("外观", null, icon = Icons.Rounded.Palette,
-                value = when (st.theme) { "light" -> "明亮"; "dark" -> "深色"; else -> "跟随系统" }, onClick = { choice = "theme" })
+                value = when (st.theme) { "light" -> "浅色"; "dark" -> "深色"; else -> "跟随系统" }, onClick = { choice = "theme" })
         }
 
-        SectionTitle("数据管理")
+        SectionTitle("高级")
+        SettingGroup {
+            SettingRow("高级选项", "上报间隔、增强服务、二次上报、调试", icon = Icons.Rounded.Build,
+                value = if (advanced) "收起" else "展开", onClick = { advanced = !advanced })
+            AnimatedVisibility(advanced) {
+                Column {
+                    RowDivider()
+                    SettingRow("上报间隔", null, icon = Icons.Rounded.Timer, value = "${st.interval} 毫秒",
+                        onClick = { number = NUMBER_SETTINGS["interval"] })
+                    RowDivider()
+                    SettingRow("定位增强服务", "按上报间隔循环广播位置", icon = Icons.Rounded.Autorenew, checked = st.enhanced,
+                        onCheckedChange = { save("enhanced", it, if (it) "位置增强服务已开启" else "位置增强服务已关闭") })
+                    RowDivider()
+                    SettingRow("二次上报", "摇杆数据再确认一次", icon = Icons.Rounded.Repeat, checked = st.secondReport,
+                        onCheckedChange = { save("secondReport", it, if (it) "摇杆二次上报已开启" else "摇杆二次上报已关闭") })
+                    RowDivider()
+                    SettingRow("调试模式", "显示更多日志", icon = Icons.Rounded.BugReport, checked = st.debug,
+                        onCheckedChange = { save("debug", it) })
+                }
+            }
+        }
+
+        SectionTitle("数据")
         SettingGroup {
             SettingRow("导出备份", "位置、路线、预设和环境记录（不含 Key）", icon = Icons.Rounded.Upload, onClick = onExport)
-            Divider()
+            RowDivider()
             SettingRow("导入备份", "同 ID 记录会被更新", icon = Icons.Rounded.Download, onClick = onImport)
-            Divider()
-            SettingRow("清除诊断日志", "删除临时数据，释放存储空间", icon = Icons.Rounded.CleaningServices, onClick = { confirm = "logs" })
-            Divider()
+            RowDivider()
+            SettingRow("清除诊断日志", null, icon = Icons.Rounded.CleaningServices, onClick = { confirm = "logs" })
+            RowDivider()
             SettingRow("清除全部数据", "停止模拟并删除所有记录与预设", icon = Icons.Rounded.DeleteForever, onClick = { confirm = "all" })
         }
 
         SectionTitle("诊断日志")
         SettingGroup {
             if (s.logs.isEmpty()) SettingRow("暂无日志", "错误会在这里明确记录")
-            s.logs.take(if (st.debug) 30 else 6).forEach {
-                SettingRow(it.message, formatTime(it.time, "MM-dd HH:mm:ss"))
+            s.logs.take(if (st.debug) 30 else 5).forEachIndexed { i, entry ->
+                if (i > 0) RowDivider(icon = false)
+                SettingRow(entry.message, formatTime(entry.time, "MM-dd HH:mm:ss"))
             }
         }
 
         SectionTitle("关于")
         SettingGroup {
-            SettingRow("Geoshift", "版本 ${s.version} · 包名 app.geoshift", icon = Icons.Rounded.Info)
-            Divider()
+            SettingRow("Geoshift", "版本 ${s.version}", icon = Icons.Rounded.Info)
+            RowDivider()
             SettingRow("使用帮助", null, icon = Icons.AutoMirrored.Rounded.HelpOutline, onClick = { text = "使用帮助" to HELP })
-            Divider()
+            RowDivider()
             SettingRow("隐私政策", null, icon = Icons.Rounded.PrivacyTip, onClick = { text = "隐私政策" to PRIVACY })
-            Divider()
+            RowDivider()
             SettingRow("开源许可", null, icon = Icons.AutoMirrored.Rounded.Article, onClick = { text = "开源许可" to LICENSES })
         }
     }
@@ -234,7 +250,7 @@ fun SettingsScreen(
             onDismiss = { choice = null }) { save("backend", it, "已切换模拟类型") }
         "speedMode" -> ChoiceDialog("移动模式", SpeedMode.entries.map { it.key to "${it.label} · ${it.metresPerSecond} m/s" }, st.speedMode.key,
             onDismiss = { choice = null }) { save("speedMode", it) }
-        "theme" -> ChoiceDialog("外观", listOf("system" to "跟随系统", "light" to "明亮", "dark" to "深色"), st.theme,
+        "theme" -> ChoiceDialog("外观", listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色"), st.theme,
             onDismiss = { choice = null }) { save("theme", it, null) }
     }
     if (mapKey) {
@@ -260,12 +276,6 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun Divider() = HorizontalDivider(Modifier.padding(start = 66.dp), color = MaterialTheme.colorScheme.outlineVariant)
-
-@Composable
-private fun Spacer12() = androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 12.dp))
-
-@Composable
 private fun ChoiceDialog(title: String, options: List<Pair<String, String>>, current: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -289,15 +299,17 @@ private fun ChoiceDialog(title: String, options: List<Pair<String, String>>, cur
 
 const val HELP = """1. 首次使用：同意使用须知，授予精确位置权限。
 
-2. 标准模式：在系统「开发者选项 → 选择模拟位置信息应用」中选择 Geoshift，然后在地图选点并点击「开始模拟」。系统会保留模拟标记。
+2. 标准模式：在系统「开发者选项 → 选择模拟位置信息应用」中选择 Geoshift，然后在地图选点并点击开始。系统会保留模拟标记。
 
-3. LSPosed 模式：启用 Geoshift，勾选「系统框架」「电话服务」和需要模拟的应用；如有「Android 系统」也请勾选。重启手机并开启模拟。系统路径处理 gps / network / fused 的上报与缓存，目标应用提供额外兜底。可在设置中开启 Wi-Fi 和基站信息过滤；停止模拟后恢复正常读取，无法清除已有缓存。不同设备接口可能不同，请通过系统定位诊断及目标应用实际结果验证。
+3. LSPosed 模式：在 LSPosed / Vector 中启用 Geoshift，作用域勾选「系统框架」「电话服务」和「蓝牙」，不要勾选普通应用，然后重启手机。系统层会对所有应用（或设置里「模拟范围」选中的应用）伪装定位、Wi-Fi、基站和卫星。可在「控制台 → 系统诊断」查看各入口状态。
 
-4. 路线：在地图点击右侧「路线编辑」按钮，依次点击地图添加点位，保存后在「模拟」页开始路线模拟，可暂停、继续和调整移动模式。
+4. 选点：在地图上点击或长按选点，也可以在搜索框输入地名或「纬度, 经度」。
 
-5. 摇杆：在地图右侧或「模拟」页打开摇杆悬浮窗（需要悬浮窗权限），拖动圆盘移动虚拟位置，点右上角 × 关闭。
+5. 路线：点地图右侧路线按钮，依次点击地图添加途经点，可选择沿道路步行、骑行或驾车。保存后在「控制台」或「收藏 · 路线」出发；行进中可暂停、继续，Geoshift 在后台被冻结也会继续走。
 
-6. 环境记录：在「模拟」页记录当前环境，会保存手机此刻真实扫描到的基站与 Wi-Fi，之后可在「历史 · 环境记录」载入到 LSPosed 模拟。"""
+6. 摇杆：在地图右侧或「控制台」打开摇杆悬浮窗（需要悬浮窗权限），拖动圆盘移动虚拟位置。
+
+7. 环境记录：在「控制台」记录当前环境，会保存手机此刻真实扫描到的基站与 Wi-Fi，之后可在「收藏 · 环境」载入。"""
 
 const val PRIVACY = """我们重视您的隐私。
 

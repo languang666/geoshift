@@ -72,6 +72,14 @@ import app.geoshift.data.PortalState
 import app.geoshift.ui.PortalViewModel
 import app.geoshift.ui.components.ConfirmDialog
 import app.geoshift.ui.components.EmptyState
+import app.geoshift.ui.components.PageHeader
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import app.geoshift.ui.components.IconBadge
 import app.geoshift.ui.components.InputDialog
 import app.geoshift.ui.components.formatCoord
@@ -128,8 +136,7 @@ fun HistoryScreen(
         }
 
     Column(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
-        Row(Modifier.statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("历史", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        PageHeader("收藏") {
             IconButton(onClick = onExport) { Icon(Icons.Rounded.Upload, "导出备份") }
             Box {
                 IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "排序") }
@@ -141,29 +148,35 @@ fun HistoryScreen(
                 }
             }
         }
-        SecondaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
-            listOf("历史位置" to s.locations.size, "路线记录" to s.routes.size, "环境记录" to s.environments.size).forEachIndexed { i, (label, n) ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(if (n > 0) "$label $n" else label) })
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            val tabs = listOf("位置" to s.locations.size, "路线" to s.routes.size, "环境" to s.environments.size)
+            tabs.forEachIndexed { i, (label, n) ->
+                SegmentedButton(selected = tab == i, onClick = { tab = i }, shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
+                    label = { Text(if (n > 0) "$label $n" else label) })
             }
         }
-        OutlinedTextField(
+        TextField(
             value = query, onValueChange = { query = it },
-            placeholder = { Text(if (tab == 1) "搜索路线..." else "搜索历史位置...") },
+            placeholder = { Text(when (tab) { 1 -> "搜索路线"; 2 -> "搜索环境记录"; else -> "搜索位置" }) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             singleLine = true, shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+            ),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         )
         if (rows.isEmpty()) {
             when {
                 query.isNotBlank() -> EmptyState(Icons.Rounded.Search, if (tab == 1) "未找到匹配的路线" else "未找到匹配的位置", "尝试使用不同的关键词搜索")
-                tab == 0 -> EmptyState(Icons.Rounded.Place, "尚未保存任何位置", "打开地图标点然后点击右下角加号添加位置吧！")
-                tab == 1 -> EmptyState(Icons.Rounded.Route, "尚未保存任何路线", "展开地图并点击右侧路线编辑按钮开始创建")
-                else -> EmptyState(Icons.Rounded.Radar, "暂无环境记录", "在「模拟」页记录当前位置的基站与 Wi-Fi 环境")
+                tab == 0 -> EmptyState(Icons.Rounded.Place, "还没有收藏位置", "在地图上选点，点卡片右下角的加号收藏")
+                tab == 1 -> EmptyState(Icons.Rounded.Route, "还没有路线", "点地图右侧的路线按钮，依次点选途经点")
+                else -> EmptyState(Icons.Rounded.Radar, "暂无环境记录", "在「控制台」记录此处的基站与 Wi-Fi")
             }
         } else {
-            Text("左滑删除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 20.dp, bottom = 4.dp))
-            LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(rows, key = { it.key + it.id }) { row ->
                     SwipeRow(row, onClick = { sheet = row }, onDelete = { confirmDelete = row })
                 }
@@ -256,7 +269,7 @@ private fun SwipeRow(row: HistoryRow, onClick: () -> Unit, onDelete: () -> Unit)
         state = state,
         enableDismissFromStartToEnd = false,
         backgroundContent = {
-            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)).background(Danger).padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
+            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)).background(Danger).padding(end = 24.dp), contentAlignment = Alignment.CenterEnd) {
                 Icon(Icons.Rounded.Delete, "删除", tint = androidx.compose.ui.graphics.Color.White)
             }
         },
@@ -270,8 +283,10 @@ private fun SwipeRow(row: HistoryRow, onClick: () -> Unit, onDelete: () -> Unit)
                 }
             },
             leadingContent = { IconBadge(row.icon) },
+            trailingContent = { Icon(Icons.Rounded.MoreVert, "更多操作（左滑删除）", tint = MaterialTheme.colorScheme.outline) },
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick),
+            modifier = Modifier.clip(RoundedCornerShape(18.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)).clickable(onClick = onClick),
         )
     }
 }

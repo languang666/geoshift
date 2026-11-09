@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Bookmarks
 import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.NearMe
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -63,8 +63,8 @@ import app.geoshift.ui.theme.PortalTheme
 import app.geoshift.ui.theme.isDark
 
 private enum class Tab(val label: String, val icon: ImageVector) {
-    MAP("地图", Icons.Rounded.Map), HISTORY("历史", Icons.Rounded.History),
-    MOCK("模拟", Icons.Rounded.NearMe), SETTINGS("设置", Icons.Rounded.Settings),
+    MAP("地图", Icons.Rounded.Map), MOCK("控制台", Icons.Rounded.Tune),
+    HISTORY("收藏", Icons.Rounded.Bookmarks), SETTINGS("设置", Icons.Rounded.Settings),
 }
 
 private enum class Page { MAIN, WIFI, CELL, SETUP }
@@ -161,10 +161,19 @@ private fun Root(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> 
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 snackbarHost = { SnackbarHost(snackbar) },
                 bottomBar = {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                        Tab.entries.forEach { t ->
-                            NavigationBarItem(selected = tab == t, onClick = { tab = t },
-                                icon = { Icon(t.icon, null) }, label = { Text(t.label) })
+                    Column {
+                        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                            Tab.entries.forEach { t ->
+                                NavigationBarItem(selected = tab == t, onClick = { tab = t },
+                                    icon = {
+                                        // The console tab carries a green dot while anything is being simulated.
+                                        if (t == Tab.MOCK && s.runtime.enabled) androidx.compose.material3.BadgedBox(badge = {
+                                            androidx.compose.material3.Badge(containerColor = MaterialTheme.colorScheme.tertiary)
+                                        }) { Icon(t.icon, null) } else Icon(t.icon, null)
+                                    },
+                                    label = { Text(t.label) })
+                            }
                         }
                     }
                 },

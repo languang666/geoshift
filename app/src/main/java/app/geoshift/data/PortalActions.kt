@@ -449,6 +449,12 @@ class PortalActions(context: Context) {
 
     /** AMap with a Web service key, otherwise keyless OpenStreetMap search near [near]. */
     fun search(query: String, near: LatLon? = null): List<Place> {
+        // "lat, lon" (WGS-84, as GPS reports it) goes straight to that point, offline.
+        Regex("""^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,，\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$""").find(query)?.let { m ->
+            val lat = m.groupValues[1].toDouble()
+            val lon = m.groupValues[2].toDouble()
+            if (app.geoshift.Geo.valid(lat, lon)) return listOf(Place(String.format(java.util.Locale.ROOT, "%.6f, %.6f", lat, lon), "坐标（WGS-84）", LatLon(lat, lon)))
+        }
         if (PortalStore.mapKey(c).isEmpty()) {
             requireOnline()
             return OpenGeocoder.search(query, near)

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PinDrop
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Place
@@ -273,31 +274,39 @@ fun MapScreen(
                 .padding(top = 72.dp, end = 12.dp, bottom = with(density) { bottomCardHeight.toDp() }),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Box {
-                MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}", active = s.settings.mapSource != MapSource.DEFAULT) { mapMenu = true }
-                DropdownMenu(expanded = mapMenu, onDismissRequest = { mapMenu = false }) {
-                    MapSource.values().forEach { source ->
-                        DropdownMenuItem(text = { Text(source.menuLabel) },
-                            trailingIcon = { if (source == s.settings.mapSource) Icon(Icons.Rounded.Check, "已选择") },
-                            onClick = {
-                                mapMenu = false
-                                if (source != s.settings.mapSource) vm.run("已切换至${source.label}") {
-                                    saveSettings(JSONObject().put("mapSource", source.key))
-                                }
-                            })
+            ToolGroup {
+                Box {
+                    MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}") { mapMenu = true }
+                    DropdownMenu(expanded = mapMenu, onDismissRequest = { mapMenu = false }) {
+                        MapSource.values().forEach { source ->
+                            DropdownMenuItem(text = { Text(source.menuLabel) },
+                                trailingIcon = { if (source == s.settings.mapSource) Icon(Icons.Rounded.Check, "已选择") },
+                                onClick = {
+                                    mapMenu = false
+                                    if (source != s.settings.mapSource) vm.run("已切换至${source.label}") {
+                                        saveSettings(JSONObject().put("mapSource", source.key))
+                                    }
+                                })
+                        }
                     }
                 }
             }
-            MapTool(Icons.Rounded.PinDrop, "虚拟位置") { onCenter(CenterRequest(r.position)) }
-            MapTool(Icons.Rounded.MyLocation, "原始位置（先停止模拟）") {
-                vm.run<LatLon>(onDone = { select(it); onCenter(CenterRequest(it, 16.0)) }) { deviceLocation() }
+            ToolGroup {
+                MapTool(Icons.Rounded.PinDrop, "回到虚拟位置") { onCenter(CenterRequest(r.position)) }
+                ToolDivider()
+                MapTool(Icons.Rounded.MyLocation, "真实位置（先停止模拟）") {
+                    vm.run<LatLon>(onDone = { select(it); onCenter(CenterRequest(it, 16.0)) }) { deviceLocation() }
+                }
             }
-            MapTool(Icons.Rounded.Route, "路线编辑", active = editing) {
-                if (!editing) { draft.clear(); selected = null; searchGeneration++; results = emptyList(); focus.clearFocus() }
-                editing = !editing
-            }
-            MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.overlay) {
-                vm.run(if (r.overlay) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { overlay(!r.overlay) }
+            ToolGroup {
+                MapTool(Icons.Rounded.Route, "路线编辑", active = editing) {
+                    if (!editing) { draft.clear(); selected = null; searchGeneration++; results = emptyList(); focus.clearFocus() }
+                    editing = !editing
+                }
+                ToolDivider()
+                MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.overlay) {
+                    vm.run(if (r.overlay) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { overlay(!r.overlay) }
+                }
             }
         }
 
@@ -355,7 +364,8 @@ fun MapScreen(
                 else -> StatusCard(s, onToggle = {
                     if (r.enabled) vm.run("模拟定位已关闭") { stop() }
                     else vm.run("模拟定位已开启") { if (r.routeMode && r.route.size >= 2) startRoute() else startPoint() }
-                }, onOpenSetup = onOpenSetup)
+                }, onPause = { vm.run(if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
+                    onOpenSetup = onOpenSetup)
             }
         }
 
@@ -419,11 +429,11 @@ private fun MapTip(onSwitch: () -> Unit, onKey: () -> Unit, onClose: () -> Unit)
 
 @Composable
 private fun SearchBar(query: String, onQuery: (String) -> Unit, onSearch: () -> Unit, onClear: () -> Unit) {
-    Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 4.dp, color = MaterialTheme.colorScheme.surface) {
+    Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 3.dp, color = MaterialTheme.colorScheme.surface) {
         TextField(
             value = query,
             onValueChange = onQuery,
-            placeholder = { Text("搜索地点、地址") },
+            placeholder = { Text("搜索地点、地址或坐标", color = MaterialTheme.colorScheme.onSurfaceVariant) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = onClear) { Icon(Icons.Rounded.Close, "清除") } },
             singleLine = true,
@@ -438,79 +448,116 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, onSearch: () -> 
     }
 }
 
+/** Rounded floating group holding one or more map tools. */
+@Composable
+private fun ToolGroup(content: @Composable () -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 3.dp) {
+        Column { content() }
+    }
+}
+
+@Composable
+private fun ToolDivider() =
+    HorizontalDivider(Modifier.width(48.dp).padding(horizontal = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
 @Composable
 private fun MapTool(icon: ImageVector, description: String, active: Boolean = false, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-        contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-        shadowElevation = 3.dp,
-        modifier = Modifier.size(46.dp),
+    Box(
+        Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick)
+            .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center) { Icon(icon, description, modifier = Modifier.size(22.dp)) }
+        Icon(icon, description, modifier = Modifier.size(22.dp),
+            tint = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
     }
 }
 
 @Composable
 private fun BottomCard(content: @Composable () -> Unit) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
         Column(Modifier.padding(18.dp)) { content() }
     }
 }
 
+/** Idle / running panel: state and position on the left, one round start-stop button on the right. */
 @Composable
-private fun StatusCard(s: PortalState, onToggle: () -> Unit, onOpenSetup: () -> Unit) {
+private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit, onOpenSetup: () -> Unit) {
     val r = s.runtime
     val ready = s.settings.privacyAccepted && s.caps.preciseLocation &&
             (if (s.settings.lsposed) s.caps.hookActive else s.caps.mockSelected)
+    val live = MaterialTheme.colorScheme.tertiary
     BottomCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                when {
-                    r.enabled && r.paused -> StatusPill("路线模拟已暂停", Tone.WARN)
-                    r.enabled && r.routeMode -> StatusPill("路线模拟中", Tone.OK)
-                    r.enabled -> StatusPill("模拟定位已开启", Tone.OK)
-                    r.error.isNotEmpty() -> StatusPill("模拟启动失败", Tone.ERROR)
-                    else -> StatusPill("模拟定位已关闭", Tone.WARN)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(
+                        when {
+                            r.enabled && r.paused -> app.geoshift.ui.theme.Warning
+                            r.enabled -> live
+                            r.error.isNotEmpty() -> Danger
+                            else -> MaterialTheme.colorScheme.outline
+                        }))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            r.enabled && r.paused -> "路线已暂停"
+                            r.enabled && r.routeMode -> "路线模拟中"
+                            r.enabled -> "正在模拟"
+                            r.error.isNotEmpty() -> "模拟启动失败"
+                            else -> "未在模拟"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (r.enabled) live else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Spacer(Modifier.size(8.dp))
-                Text("虚拟位置", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(formatCoord(r.position.lat, r.position.lon), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.size(4.dp))
+                Text(formatCoord(r.position.lat, r.position.lon), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"))
+                Text(
+                    when {
+                        r.enabled && r.routeMode -> String.format(java.util.Locale.ROOT, "%s · %.0f km/h · %d%%",
+                            r.routeName.ifEmpty { "未命名路线" }, r.speed * 3.6, (r.progress * 100).toInt())
+                        r.enabled -> "所有定位来源都在这个点"
+                        else -> "点地图选点，或直接在此处开始"
+                    },
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
-            Button(
-                onClick = onToggle,
-                shape = CircleShape,
-                colors = if (r.enabled) ButtonDefaults.buttonColors(containerColor = Danger, contentColor = Color.White) else ButtonDefaults.buttonColors(),
-                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp),
-            ) {
-                Icon(if (r.enabled) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null)
-                Spacer(Modifier.width(6.dp))
-                Text(if (r.enabled) "停止" else "开始模拟")
+            if (r.enabled && r.routeMode) {
+                Surface(onClick = onPause, shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.size(48.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(if (r.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (r.paused) "继续" else "暂停")
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+            }
+            Surface(onClick = onToggle, shape = CircleShape, shadowElevation = 2.dp,
+                color = if (r.enabled) Danger else MaterialTheme.colorScheme.primary,
+                contentColor = Color.White, modifier = Modifier.size(60.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(if (r.enabled) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (r.enabled) "停止模拟" else "开始模拟",
+                        Modifier.size(30.dp))
+                }
             }
         }
         if (r.enabled && r.routeMode) {
             Spacer(Modifier.size(12.dp))
-            Text("${r.routeName.ifEmpty { "未命名路线" }} · ${(r.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.size(6.dp))
-            LinearProgressIndicator(progress = { r.progress.toFloat() }, modifier = Modifier.fillMaxWidth().clip(CircleShape))
+            LinearProgressIndicator(progress = { r.progress.toFloat() }, modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                color = live, drawStopIndicator = {})
         }
         if (r.error.isNotEmpty() && !r.enabled) {
             Spacer(Modifier.size(8.dp))
             Text(r.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         if (!ready) {
-            Spacer(Modifier.size(10.dp))
+            Spacer(Modifier.size(12.dp))
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer)
                 .clickable(onClick = onOpenSetup).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("还有权限或模块未配置，点此完成设置", style = MaterialTheme.typography.bodySmall,
+                Text("还有权限或模块未配置", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.weight(1f))
                 Text("去设置", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
-        } else {
-            Spacer(Modifier.size(6.dp))
-            Text("点击地图选点，长按也可以快速选点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -523,12 +570,12 @@ private fun PreviewCard(
     BottomCard {
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
-                Text("位置预览", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text("选中的位置", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(address.ifEmpty { "未知地址" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.size(4.dp))
-                Text("坐标 ${formatCoord(point.lat, point.lon)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("距当前虚拟位置 ${formatDistance(distance)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${formatCoord(point.lat, point.lon)} · 距虚拟位置 ${formatDistance(distance)}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "关闭") }
         }
