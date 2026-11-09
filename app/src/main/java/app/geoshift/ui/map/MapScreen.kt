@@ -45,7 +45,6 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -91,8 +90,6 @@ import app.geoshift.data.PortalState
 import app.geoshift.data.routeLength
 import app.geoshift.ui.PortalViewModel
 import app.geoshift.ui.components.InputDialog
-import app.geoshift.ui.components.StatusPill
-import app.geoshift.ui.components.Tone
 import app.geoshift.ui.components.formatCoord
 import app.geoshift.ui.components.formatDistance
 import app.geoshift.ui.theme.Danger

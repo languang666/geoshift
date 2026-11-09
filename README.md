@@ -1,6 +1,7 @@
 # Geoshift（2.7.0，原 Portal Compose 版）
 
-原生 Kotlin + Jetpack Compose 重写的虚拟定位工具，界面布局和使用流程参照 PortalDev：
+原生 Kotlin + Jetpack Compose 编写的虚拟定位工具，使用流程参照 PortalDev，界面在 2.7.0 重新设计。
+
 底部四个标签：地图、控制台、收藏、设置。地图负责选点、搜索（地名或「纬度, 经度」）、画路线和开始/停止；控制台集中显示模拟状态和各项模拟开关（定位、摇杆、Wi-Fi、基站、卫星）、路线播放与系统诊断；Wi-Fi 模拟、基站模拟、权限与模块引导是二级页面。
 
 - 包名 `app.geoshift`。1.x 网页版（`local.portal.rebuild`）是另一个应用，不能覆盖安装；记录用「设置 → 导出备份 / 导入备份」迁移。2.x 各版本之间可以直接覆盖升级。
@@ -33,13 +34,13 @@
 - 无法伪装：公网 IP（定位 SDK 可据此判断城市，需要代理 / VPN）、运营商代码。
 - 基站：电话服务返回基站预设（未设置则为空），包括 getAllCellInfo、getCellLocation、requestCellInfoUpdate、getServiceState 和基站 / 网络状态变化回调。运营商代码（getNetworkOperator）来自系统属性，在系统侧无法修改，仍是真实 SIM 卡的值。
 
-以上环境伪装由「设置 → 伪装 Wi-Fi、基站、卫星和蓝牙」控制，默认开启；不改变真实网络连接和硬件。
+以上环境伪装由「设置 → 隐藏真实信号」控制，默认开启；不改变真实网络连接和硬件。
 
 模拟范围（「设置 → 模拟范围」）：默认所有应用；可改为「仅选中的应用」，其他应用（如导航）继续拿到真实位置、Wi-Fi、基站和卫星。系统侧按每个回调所属的应用分别处理；使用谷歌融合定位的应用需同时选中「Google Play 服务」。
 
 隐蔽性：App 与系统侧的命令通道只对 Geoshift 自己和系统进程开放；其他任何应用（包括选中的应用）调用时得到的是原生系统的行为，无法据此发现 Geoshift。与 PortalDev 一样，不在普通应用进程内注入代码，作用域里不要勾选普通应用。
 
-「模拟 → 系统定位诊断」显示真实上报拦截数、推送成功／失败、应用回调替换计数、Wi-Fi 与电话服务报告。
+「控制台 → 系统诊断」显示真实上报拦截数、推送成功／失败、应用回调替换计数、Wi-Fi 与电话服务报告。
 
 2.5.1 已在 Android 15 模拟器（Magisk 31.1 + Vector v2.2，勾系统框架、电话服务和蓝牙；2.4.3 在 LSPosed 1.11.0 上同样验证过）上用独立探针应用（tests/probe）验证：定位 8 种读取方式、Google 融合定位 4 种读取方式、卫星、NMEA、GNSS 原始测量、Wi-Fi 3 种读取方式、基站 6 种读取方式在未设预设和设了预设时均为模拟值，停止后恢复真实值。蓝牙伪装入口已在蓝牙进程安装，但模拟器周围没有蓝牙设备，拦截效果需在真机验证；小米模糊定位服务只存在于小米 ROM，模拟器无法验证；尚未在 Redmi K70 实机验证。实现参考见 [开源项目对照](tests/OPEN_SOURCE_REVIEW.md)。
 
@@ -47,10 +48,23 @@
 
 需要 JDK 17+、Android SDK（platform 37、build-tools 37.0.0）。构建工具链：Gradle 9.8.2、AGP 9.4.1（内置 Kotlin 2.4.21）、Compose BOM 2026.09.00。
 
+本地工作区布局（仓库只是其中的 `source/`）：
+
 ```
-EMULATOR=1 ./build-release.sh   # 额外打包 x86_64 原生库，产出 Geoshift-<版本>-emulator.apk，仅用于模拟器测试
-./build-release.sh        # 产出 Geoshift-<版本>.apk（仅 ARM），使用 ~/.geoshift-signing 中的私钥签名（可用 PORTAL_KEYS 指定）
+geoshift/
+  source/      本仓库
+  releases/    构建产物 Geoshift-<版本>.apk、GeoProbe.apk
+  reference/   对照用的原版 PortalDev 安装包（不入库）
+  android/     sdk/（Android SDK）、avd/（测试模拟器 portaltest）
+  signing/     签名私钥（仅 root 可读，不入库）
 ```
+
+```
+./build-release.sh              # 产出 ../releases/Geoshift-<版本>.apk（仅 ARM），用 ../signing 中的私钥签名（可用 PORTAL_KEYS 指定）
+EMULATOR=1 ./build-release.sh   # 额外打包 x86_64 原生库，产出 -emulator.apk，仅用于模拟器测试
+```
+
+SDK 默认取 `../android/sdk`（可用 ANDROID_HOME 覆盖）。
 
 只编译不签名：`./gradlew assembleRelease`。
 
@@ -64,21 +78,15 @@ app/src/main/java/app/geoshift/
                          RoadRouter（沿道路路线）、OpenGeocoder（免 Key 搜索与地址）
   ui/                    PortalApp（导航）、map/（VectorMap：MapLibre 图层；OsmMap：OSM 默认图层）、
                          history/ mock/ settings/ setup/ 各页面、theme/、components/
+tests/run-checks.sh      一键运行下面两组回归测试
 tests/GeoChecks.java     坐标算法与地图切换坐标回归测试
-tests/bridge/            系统 hook 逻辑回归（API 替身，run-bridge-checks.sh）
+tests/bridge/            系统 hook、路线播放、NMEA 逻辑回归（API 替身）
 tests/probe/             探针应用 GeoProbe：以普通应用身份读取全部定位线索，logcat 标签 GEOPROBE
 ```
 
-坐标回归测试（无需 Android 或网络）：
-
-```sh
-javac -d /tmp/geoshift-map-checks app/src/main/java/app/geoshift/Geo.java app/src/main/java/app/geoshift/MapSource.java tests/GeoChecks.java
-java -cp /tmp/geoshift-map-checks GeoChecks
-```
+回归测试（无需真机或网络）：`bash tests/run-checks.sh`。这些测试使用 API 替身与模拟 hook 调度器，不能替代真机 / LSPosed 验证。
 
 Android 静态检查：`./gradlew lintRelease`。请与发布构建串行执行，避免共享编译目录发生冲突。
-
-系统辅助逻辑回归：`bash tests/run-bridge-checks.sh`。这些测试使用 API 替身与模拟 hook 调度器，不能替代真实 Android 16 / LSPosed 验证。
 
 ## 许可
 

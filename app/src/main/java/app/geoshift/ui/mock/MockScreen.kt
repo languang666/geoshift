@@ -22,8 +22,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CellTower
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MonitorHeart
@@ -44,7 +42,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,7 +55,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.geoshift.data.LatLon
@@ -399,14 +395,4 @@ private fun Diagnostics(s: PortalState, expanded: Boolean, onToggle: () -> Unit,
             }
         }
     }
-}
-
-@Composable
-fun FeatureLine(name: String, ok: Boolean, time: Long, pkg: String, error: String) {
-    Text(
-        (if (ok) "✓ 目标已读取$name" else "✕ 目标报告错误") + " · $pkg · ${formatTime(time, "HH:mm:ss")}" + if (error.isNotEmpty()) " · $error" else "",
-        style = MaterialTheme.typography.bodySmall,
-        color = if (ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-    )
 }

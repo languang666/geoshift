@@ -198,20 +198,6 @@ fun ToggleTile(
     }
 }
 
-enum class Tone(val color: Color) { OK(Success), WARN(Warning), ERROR(Danger) }
-
-@Composable
-fun StatusPill(text: String, tone: Tone) {
-    Row(
-        Modifier.clip(CircleShape).background(tone.color.copy(alpha = 0.13f)).padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(tone.color))
-        Spacer(Modifier.width(6.dp))
-        Text(text, style = MaterialTheme.typography.labelMedium, color = tone.color, fontWeight = FontWeight.SemiBold)
-    }
-}
-
 @Composable
 fun EmptyState(icon: ImageVector, title: String, detail: String, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(vertical = 56.dp, horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
