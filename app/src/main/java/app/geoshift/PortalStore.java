@@ -23,7 +23,7 @@ public final class PortalStore {
 
     /** Runtime keys handed to hooked target processes. The route is deliberately excluded. */
     static final String[] HOOK_RUNTIME_KEYS = {
-            "enabled", "paused", "lat", "lon", "speed", "bearing", "mode",
+            "enabled", "paused", "lat", "lon", "speed", "bearing", "mode", "noiseSeed",
             "routeAnchorDist", "routeAnchorAt", "routeSpeed",
             "wifiEnabled", "wifi", "cellEnabled", "cell", "cells"};
     static final String[] HOOK_SETTING_KEYS = {

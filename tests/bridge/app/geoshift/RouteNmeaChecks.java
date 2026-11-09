@@ -55,7 +55,29 @@ public final class RouteNmeaChecks {
         check(Math.abs(FakeLocation.build(config, "gps").getLatitude() - 1.0) < 1e-3, "other plan -> runtime position");
         config.getJSONObject("runtime").put("planId", plan.id);
 
+        // Long uptime must not produce negative azimuths (Java remainder keeps the sign).
+        for (long at : new long[]{0, 24*60*60_000L, 7*24*60*60_000L, 365*24*60*60_000L}) {
+            boolean valid = true;
+            for (FakeEnvironment.Sat sat : FakeEnvironment.sky(config, at))
+                valid &= sat.azimuth >= 0 && sat.azimuth < 360 && sat.elevation >= 0 && sat.elevation <= 90;
+            check(valid, "satellite angles valid at uptime " + at);
+        }
+
+        java.util.List<FakeEnvironment.Sat> observations = FakeEnvironment.sky(config, 123456L);
+        int usedCount = 0; double sumSignal = 0, maxSignal = 0;
+        for (FakeEnvironment.Sat sat : observations) if (sat.used) {
+            usedCount++; sumSignal += sat.cn0; maxSignal = Math.max(maxSignal, sat.cn0);
+        }
+        android.os.Bundle summary = FakeEnvironment.gpsExtras(config, 123456L);
+        check(summary.getInt("satellites") == usedCount, "GNSS used flags and fix satellite count agree");
+        check(summary.getInt("meanCn0") == (int)Math.round(sumSignal / usedCount)
+                && summary.getInt("maxCn0") == (int)Math.round(maxSignal), "fix signal summary matches the same satellite observations");
+        config.getJSONObject("runtime").put("noiseSeed", 876543L);
+        check(FakeEnvironment.sky(config, 123456L).get(0).cn0 != observations.get(0).cn0, "satellite signal varies between sessions");
+        config.getJSONObject("runtime").put("noiseSeed", 0L);
+
         // NMEA: same talker and type, valid checksum, simulated position.
+        check(FakeNmea.replace(config, "$GPTXT,01,01,02,unvalidated receiver payload*00") == null, "free-form receiver text is withheld");
         String gga = FakeNmea.replace(config, "$GPGGA,120000.00,3954.000,N,11624.000,E,1,08,0.9,50.0,M,0.0,M,,*00");
         check(gga != null && gga.startsWith("$GPGGA,"), "GGA talker " + gga);
         String[] g = gga.split(",");
@@ -101,6 +123,26 @@ public final class RouteNmeaChecks {
         double moved = app.geoshift.Geo.distance(earlier.getLatitude(), earlier.getLongitude(), nowFix.getLatitude(), nowFix.getLongitude());
         check(moved > 8 && moved < 25, "route moved between the two moments " + moved);
         check(FakeLocation.build(config, "gps", 999999999L).getElapsedRealtimeNanos() == nowFix.getElapsedRealtimeNanos(), "future moment clamps to now");
+        // Session-specific noise remains bounded, continuous and identical across consumers.
+        config.getJSONObject("runtime").put("mode","point").put("noiseSeed",12345L);
+        config.getJSONObject("settings").put("jitter",true);
+        Location beforeBoundary=FakeLocation.build(config,"gps",119999L),afterBoundary=FakeLocation.build(config,"gps",120000L);
+        check(Geo.distance(beforeBoundary.getLatitude(),beforeBoundary.getLongitude(),afterBoundary.getLatitude(),afterBoundary.getLongitude())<0.01,"jitter has no one-second boundary jump");
+        Location seededGps=FakeLocation.build(config,"gps",120000L),seededFused=FakeLocation.build(config,"fused",120000L);
+        check(seededGps.getLatitude()==seededFused.getLatitude()&&seededGps.getLongitude()==seededFused.getLongitude(),"seeded providers share one position");
+        Location repeated=FakeLocation.build(config,"gps",120000L);
+        check(repeated.getLatitude()==seededGps.getLatitude()&&repeated.getAltitude()==seededGps.getAltitude(),"historical seeded fix replays exactly");
+        config.getJSONObject("runtime").put("noiseSeed",67890L);
+        Location otherSession=FakeLocation.build(config,"gps",120000L);
+        check(otherSession.getLatitude()!=seededGps.getLatitude()||otherSession.getLongitude()!=seededGps.getLongitude(),"new session produces a different drift pattern");
+        boolean bounded=true,changed=false;
+        double firstNoise=FakeLocation.noise(0,3.7,12345,71);
+        for(int i=0;i<1000;i++){
+            double n=FakeLocation.noise(i*0.23,3.7,12345,71);
+            bounded&=n>=-1&&n<=1;
+            changed|=Math.abs(n-firstNoise)>0.1;
+        }
+        check(bounded&&changed,"smooth noise varies within its bounds");
         System.out.println("PASS: " + checks + " route playback / NMEA checks.");
     }
 

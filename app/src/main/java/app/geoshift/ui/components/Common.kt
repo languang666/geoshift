@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,6 +41,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -164,6 +170,7 @@ fun ToggleTile(
     on: Boolean,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    hasSubpage: Boolean = false,
     onClick: () -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.tertiary
@@ -194,7 +201,50 @@ fun ToggleTile(
                 Text(state, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (on) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (hasSubpage) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = if (on) MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
+    }
+}
+
+/** Clickable coordinate row with haptic feedback and tap-to-copy. */
+@Composable
+fun CoordinateRow(
+    lat: Double,
+    lon: Double,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.titleMedium,
+    color: Color = Color.Unspecified,
+    onCopied: (() -> Unit)? = null,
+) {
+    val clipboard = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
+    val text = formatCoord(lat, lon)
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable {
+                clipboard.setText(AnnotatedString(text))
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onCopied?.invoke()
+            }
+            .padding(vertical = 1.dp, horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(text, style = style.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"), color = color)
+        Icon(
+            Icons.Rounded.ContentCopy,
+            contentDescription = "复制坐标",
+            tint = if (color != Color.Unspecified) color.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(15.dp),
+        )
     }
 }
 

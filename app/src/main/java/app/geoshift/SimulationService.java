@@ -16,7 +16,6 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import org.json.JSONObject;
-import java.util.Random;
 
 /** Foreground owner of the route clock and Android test providers. No shell or native libraries. */
 public final class SimulationService extends Service {
@@ -29,7 +28,6 @@ public final class SimulationService extends Service {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private final Handler clock = new Handler(Looper.getMainLooper());
-    private final Random random = new Random();
     private final Runnable ticker = this::tick;
     private LocationManager manager;
     private boolean providers;
@@ -110,7 +108,8 @@ public final class SimulationService extends Service {
                             "lon", route[1][0], "routeIndex", 0, "progress", 0, "routeAnchorDist", 0,
                             "routeAnchorAt", SystemClock.elapsedRealtime(), "routeSpeed", PortalStore.speed(s)));
                 }
-                PortalStore.updateRuntime(this, PortalStore.obj("enabled", true, "paused", false, "error", ""));
+                PortalStore.updateRuntime(this, PortalStore.obj("enabled", true, "paused", false, "error", "",
+                        "noiseSeed", new java.security.SecureRandom().nextLong()));
             } else if ("PAUSE".equals(action)) {
                 JSONObject r = PortalStore.runtimeLight(this);
                 long now = SystemClock.elapsedRealtime();
@@ -255,28 +254,12 @@ public final class SimulationService extends Service {
     }
 
     private void emit(JSONObject r, JSONObject s) throws Exception {
-        double lat = r.getDouble("lat"), lon = r.getDouble("lon");
-        if (s.optBoolean("jitter")) {
-            double[] p = Geo.move(lat, lon, random.nextDouble(), random.nextDouble() * 360);
-            lat = p[0];
-            lon = p[1];
-        }
-        float accuracy = (float) s.optDouble("accuracy", 5);
-        double altitude = s.optDouble("altitude", 0);
-        float bearing = (float) r.optDouble("bearing", 0);
-        float speed = (float) (r.optBoolean("paused") ? 0 : r.optDouble("speed", 0));
+        JSONObject config = PortalStore.obj("runtime", r, "settings", s);
+        long at = SystemClock.elapsedRealtime();
         for (String provider : PROVIDERS) {
-            Location location = new Location(provider);
-            location.setLatitude(lat);
-            location.setLongitude(lon);
-            location.setAccuracy(accuracy);
-            location.setAltitude(altitude);
-            location.setBearing(bearing);
-            location.setSpeed(speed);
-            location.setTime(System.currentTimeMillis());
-            location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+            Location location = FakeLocation.build(config, provider, at);
             if (Build.VERSION.SDK_INT >= 31) location.setMock(true);
-            Bundle extras = new Bundle();
+            Bundle extras = location.getExtras() == null ? new Bundle() : new Bundle(location.getExtras());
             extras.putBoolean("geoshift.mock", true);
             location.setExtras(extras);
             manager.setTestProviderLocation(provider, location);

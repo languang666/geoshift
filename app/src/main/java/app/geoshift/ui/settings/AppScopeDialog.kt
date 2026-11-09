@@ -12,8 +12,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -49,6 +56,7 @@ fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, o
     var mode by remember { mutableStateOf(scope) }
     val picked = remember { mutableStateListOf<String>().apply { addAll(chosen) } }
     var query by remember { mutableStateOf("") }
+    var onlySelected by remember { mutableStateOf(false) }
     var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
 
     LaunchedEffect(Unit) {
@@ -76,17 +84,50 @@ fun AppScopeDialog(scope: String, chosen: List<String>, onDismiss: () -> Unit, o
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
-                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text("搜索应用名或包名（已选 ${picked.size} 个）") })
+                OutlinedTextField(
+                    value = query, onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("搜索应用名或包名（已选 ${picked.size} 个）") },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "清除") }
+                        }
+                    },
+                )
                 Spacer(Modifier.height(8.dp))
                 val list = apps
                 if (list == null) {
-                    Text("正在读取应用列表…", Modifier.weight(1f).padding(top = 16.dp))
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth().padding(top = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+                        Text("正在读取应用列表…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 } else {
                     val q = query.trim().lowercase()
-                    val shown = if (q.isEmpty()) list else list.filter { q in it.label.lowercase() || q in it.pkg.lowercase() }
+                    val filtered = list.filter {
+                        (q.isEmpty() || q in it.label.lowercase() || q in it.pkg.lowercase()) &&
+                                (!onlySelected || it.pkg in picked)
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilterChip(
+                            selected = onlySelected,
+                            onClick = { onlySelected = !onlySelected },
+                            label = { Text("仅看已选 (${picked.size})") },
+                        )
+                        TextButton(onClick = {
+                            filtered.forEach { if (it.pkg !in picked) picked.add(it.pkg) }
+                        }) { Text("全选当前") }
+                        TextButton(onClick = { picked.clear() }) { Text("清空") }
+                    }
                     LazyColumn(Modifier.weight(1f)) {
-                        items(shown, key = { it.pkg }) { app ->
+                        items(filtered, key = { it.pkg }) { app ->
                             val on = app.pkg in picked
                             Row(
                                 Modifier.fillMaxWidth().clickable { if (on) picked.remove(app.pkg) else picked.add(app.pkg) }

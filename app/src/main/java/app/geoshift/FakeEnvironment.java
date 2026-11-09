@@ -49,8 +49,8 @@ final class FakeEnvironment {
         result.SSID = w.optString("ssid");
         result.BSSID = w.optString("bssid").toLowerCase(java.util.Locale.ROOT);
         result.capabilities = "[WPA2-PSK-CCMP][RSN-PSK-CCMP][ESS]";
-        result.level = -48;
-        result.frequency = 2437;
+        result.level = wifiRssi(w);
+        result.frequency = wifiFrequency(w);
         result.timestamp = SystemClock.elapsedRealtime() * 1000;
         Object ssid = wifiSsid(result.SSID);
         if (ssid != null) {
@@ -58,6 +58,15 @@ final class FakeEnvironment {
         }
         list.add(result);
         return list;
+    }
+
+    static int wifiRssi(JSONObject preset) {
+        return Math.max(-127, Math.min(0, preset.optInt("rssi", -48)));
+    }
+
+    static int wifiFrequency(JSONObject preset) {
+        int value = preset.optInt("frequency", 2437);
+        return value >= 2400 && value <= 7125 ? value : 2437;
     }
 
     /** android.net.wifi.WifiSsid for the name, or null if the platform has no usable factory. */
@@ -200,8 +209,14 @@ final class FakeEnvironment {
      * GnssStatus and NMEA are both built from this, so they always match.
      */
     static java.util.List<Sat> sky(JSONObject config) {
+        return sky(config, SystemClock.elapsedRealtime());
+    }
+
+    static java.util.List<Sat> sky(JSONObject config, long atMs) {
         int count = satelliteCount(config), used = satellitesUsed(count);
-        double minutes = SystemClock.elapsedRealtime() / 60000.0;
+        double minutes = atMs / 60000.0;
+        JSONObject runtime = config.optJSONObject("runtime");
+        long seed = runtime == null ? 0 : runtime.optLong("noiseSeed", 0);
         java.util.List<Sat> out = new java.util.ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             int k = i % CONSTELLATIONS.length;
@@ -209,9 +224,22 @@ final class FakeEnvironment {
             float carrier = CARRIER_HZ[k];
             // GLONASS satellites each use their own channel, 0.5625 MHz apart.
             if (CONSTELLATIONS[k] == GnssStatus.CONSTELLATION_GLONASS) carrier += (svid % 14 - 7) * 0.5625e6f;
-            double elevation = elevation(i, minutes);
-            double azimuth = ((i * 137) % 360 + minutes * 0.5 * (i % 2 == 0 ? 1 : -1) + 360) % 360;
-            out.add(new Sat(CONSTELLATIONS[k], svid, carrier, elevation, azimuth, cn0(i, minutes), i < used));
+            double elevation = Math.max(5, Math.min(89.9, elevation(i, minutes)
+                    + 3 * FakeLocation.noise(atMs / 1000.0, 180, seed, 101 + i)));
+            double azimuth = ((i * 137) % 360 + minutes * 0.5 * (i % 2 == 0 ? 1 : -1)) % 360;
+            if (azimuth < 0) azimuth += 360;
+            double signal = Math.max(15, Math.min(48, 18 + elevation * 0.28
+                    + 2.5 * FakeLocation.noise(atMs / 1000.0, 19.7, seed, 211 + i)));
+            out.add(new Sat(CONSTELLATIONS[k], svid, carrier, elevation, azimuth, signal, false));
+        }
+        // Prefer stronger observations; all consumers share the exact same used-in-fix flags.
+        java.util.List<Sat> ranked = new java.util.ArrayList<>(out);
+        ranked.sort((a, b) -> Double.compare(b.cn0, a.cn0));
+        java.util.Set<Sat> selected = new java.util.HashSet<>(ranked.subList(0, used));
+        for (int i = 0; i < out.size(); i++) {
+            Sat sat = out.get(i);
+            out.set(i, new Sat(sat.constellation, sat.svid, sat.carrierHz, sat.elevation,
+                    sat.azimuth, sat.cn0, selected.contains(sat)));
         }
         return out;
     }
@@ -235,23 +263,23 @@ final class FakeEnvironment {
 
     private static double elevation(int i, double minutes) { return 15 + (i * 37) % 70 + 6 * Math.sin(minutes / 40.0 + i); }
 
-    /** Higher satellites are received more strongly. */
-    private static double cn0(int i, double minutes) {
-        return 18 + elevation(i, minutes) * 0.28 + 2.5 * FakeLocation.wave(minutes * 60, i * 1.7);
-    }
-
     /**
      * Extras a real GNSS fix carries (AOSP GnssLocationProvider): satellites used in the fix and their
      * signal strength. Location SDKs read them to weigh GPS against their own Wi-Fi positioning, and they
      * must agree with the simulated sky.
      */
     static android.os.Bundle gpsExtras(JSONObject config) {
-        int used = satellitesUsed(satelliteCount(config));
-        double minutes = SystemClock.elapsedRealtime() / 60000.0, sum = 0, max = 0;
-        for (int i = 0; i < used; i++) {
-            double cn0 = cn0(i, minutes);
-            sum += cn0;
-            max = Math.max(max, cn0);
+        return gpsExtras(config, SystemClock.elapsedRealtime());
+    }
+
+    static android.os.Bundle gpsExtras(JSONObject config, long atMs) {
+        int used = 0;
+        double sum = 0, max = 0;
+        for (Sat sat : sky(config, atMs)) {
+            if (!sat.used) continue;
+            used++;
+            sum += sat.cn0;
+            max = Math.max(max, sat.cn0);
         }
         android.os.Bundle extras = new android.os.Bundle();
         extras.putInt("satellites", used);

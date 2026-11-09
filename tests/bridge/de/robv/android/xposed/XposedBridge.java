@@ -6,6 +6,9 @@ import java.util.*;
 public final class XposedBridge {
     private static final Map<Method,List<XC_MethodHook>> hooks=new HashMap<>();
     public static void reset(){hooks.clear();}
+    public static Object invokeOriginalMethod(java.lang.reflect.Member member,Object target,Object[] args)throws Throwable{
+        try{return ((Method)member).invoke(target,args);}catch(InvocationTargetException e){throw e.getCause();}
+    }
     static void remove(XC_MethodHook hook){for(List<XC_MethodHook> l:hooks.values())l.remove(hook);}
     public static XC_MethodHook.Unhook hookMethod(java.lang.reflect.Member member,XC_MethodHook hook){
         hooks.computeIfAbsent((Method)member,k->new ArrayList<>()).add(hook);return hook.new Unhook();

@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,13 +56,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.geoshift.data.LatLon
 import app.geoshift.data.PortalState
 import app.geoshift.data.SpeedMode
 import app.geoshift.ui.PortalViewModel
 import app.geoshift.ui.components.ConfirmDialog
+import app.geoshift.ui.components.CoordinateRow
 import app.geoshift.ui.components.InputDialog
 import app.geoshift.ui.components.PageHeader
 import app.geoshift.ui.components.PortalCard
@@ -78,6 +83,7 @@ import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.LiveEnd
 import app.geoshift.ui.theme.LiveStart
 import app.geoshift.ui.theme.Warning
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 /** Problems that keep simulation from starting, each with a short fix description. */
@@ -110,7 +116,15 @@ fun MockScreen(
     var captureConfirm by remember { mutableStateOf<String?>(null) }
     var originalPosition by remember { mutableStateOf<LatLon?>(null) }
     var diagnostics by rememberSaveable { mutableStateOf(false) }
+    var currentAddress by remember { mutableStateOf("") }
     val issues = readinessIssues(s)
+
+    LaunchedEffect(r.position, s.settings.privacyAccepted) {
+        if (s.settings.privacyAccepted && (!r.enabled || !r.routeMode)) {
+            delay(500)
+            vm.run<String>(onDone = { currentAddress = it }) { reverseGeocode(r.position) }
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -118,12 +132,13 @@ fun MockScreen(
     ) {
         PageHeader("控制台", if (s.settings.lsposed) "LSPosed 系统级模拟" else "标准 Android 模拟位置")
 
-        StatusHero(s,
+        StatusHero(s, currentAddress,
             onToggle = {
                 if (r.enabled) vm.run("模拟定位已关闭") { stop() }
                 else vm.run("模拟定位已开启") { if (r.routeMode && r.route.size >= 2) startRoute() else startPoint() }
             },
             onPause = { vm.run(if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
+            onCopyCoord = { vm.toast("虚拟坐标已复制到剪贴板") },
         )
 
         if (issues.isNotEmpty()) {
@@ -156,9 +171,9 @@ fun MockScreen(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToggleTile(Icons.Rounded.Wifi, "Wi-Fi", if (r.wifiEnabled) r.wifi.optString("ssid").ifEmpty { "已开启" } else "未设置",
-                    r.wifiEnabled, Modifier.weight(1f), onClick = onOpenWifi)
+                    r.wifiEnabled, Modifier.weight(1f), hasSubpage = true, onClick = onOpenWifi)
                 ToggleTile(Icons.Rounded.CellTower, "基站", if (r.cellEnabled) "${r.cellCount.coerceAtLeast(1)} 个小区" else "未设置",
-                    r.cellEnabled, Modifier.weight(1f), onClick = onOpenCell)
+                    r.cellEnabled, Modifier.weight(1f), hasSubpage = true, onClick = onOpenCell)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToggleTile(Icons.Rounded.SatelliteAlt, "卫星",
@@ -227,9 +242,10 @@ fun MockScreen(
 
 /** Big status panel: green gradient while simulating, a quiet card otherwise. */
 @Composable
-private fun StatusHero(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit) {
+private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, onPause: () -> Unit, onCopyCoord: () -> Unit) {
     val r = s.runtime
     val on = r.enabled
+    val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(24.dp)
     val background = if (on) Brush.linearGradient(listOf(LiveStart, LiveEnd))
     else Brush.linearGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surfaceContainerHigh))
@@ -252,16 +268,38 @@ private fun StatusHero(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit
         }
         Spacer(Modifier.size(14.dp))
         Text("虚拟位置", style = MaterialTheme.typography.labelMedium, color = sub)
-        Text(formatCoord(r.position.lat, r.position.lon), style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"), color = fg)
+        CoordinateRow(
+            lat = r.position.lat,
+            lon = r.position.lon,
+            style = MaterialTheme.typography.titleLarge,
+            color = fg,
+            onCopied = onCopyCoord,
+        )
+        if (address.isNotEmpty() && (!on || !r.routeMode)) {
+            Spacer(Modifier.size(2.dp))
+            Text(address, style = MaterialTheme.typography.bodySmall, color = sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         if (on && (r.routeMode || r.speed > 0.05)) {
-            Text(String.format(Locale.ROOT, "%.1f km/h · 方向 %.0f°", r.speed * 3.6, r.bearing),
+            val norm = ((r.bearing % 360 + 360) % 360)
+            val dir = when ((norm / 45.0 + 0.5).toInt() % 8) {
+                0 -> "正北"; 1 -> "东北"; 2 -> "正东"; 3 -> "东南"; 4 -> "正南"; 5 -> "西南"; 6 -> "正西"; 7 -> "西北"; else -> "北"
+            }
+            Spacer(Modifier.size(2.dp))
+            Text(String.format(Locale.ROOT, "%.1f km/h · 方向 %.0f°（%s）", r.speed * 3.6, r.bearing, dir),
                 style = MaterialTheme.typography.bodySmall, color = sub)
         }
         if (on && r.routeMode && r.route.size >= 2) {
+            val totalLength = app.geoshift.data.routeLength(r.route)
+            val remainingMetres = (totalLength * (1.0 - r.progress)).coerceAtLeast(0.0)
+            val currentSpeed = if (r.speed > 0.1) r.speed else (s.settings.speedMode.metresPerSecond * s.settings.speedMultiplier)
+            val remainingSec = if (currentSpeed > 0.05) (remainingMetres / currentSpeed).toLong() else 0L
+            val etaStr = if (remainingSec > 3600) "${remainingSec / 3600}小时${(remainingSec % 3600) / 60}分"
+                else "${(remainingSec / 60).coerceAtLeast(1)}分钟"
+
             Spacer(Modifier.size(12.dp))
-            Row {
-                Text(r.routeName.ifEmpty { "未命名路线" }, style = MaterialTheme.typography.bodySmall, color = sub, modifier = Modifier.weight(1f))
-                Text("${(r.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = fg)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(r.routeName.ifEmpty { "未命名路线" }, style = MaterialTheme.typography.bodySmall, color = sub, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${(r.progress * 100).toInt()}% · 剩 ${formatDistance(remainingMetres)}（约 $etaStr）", style = MaterialTheme.typography.bodySmall, color = fg)
             }
             Spacer(Modifier.size(6.dp))
             LinearProgressIndicator(progress = { r.progress.toFloat() }, modifier = Modifier.fillMaxWidth().clip(CircleShape),
@@ -275,7 +313,11 @@ private fun StatusHero(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (on && r.routeMode) {
                 Button(
-                    onClick = onPause, modifier = Modifier.weight(1f), shape = CircleShape,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPause()
+                    },
+                    modifier = Modifier.weight(1f), shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.22f), contentColor = Color.White),
                     contentPadding = PaddingValues(vertical = 13.dp),
                 ) {
@@ -284,7 +326,11 @@ private fun StatusHero(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit
                 }
             }
             Button(
-                onClick = onToggle, modifier = Modifier.weight(1f), shape = CircleShape,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggle()
+                },
+                modifier = Modifier.weight(1f), shape = CircleShape,
                 colors = if (on) ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Danger) else ButtonDefaults.buttonColors(),
                 contentPadding = PaddingValues(vertical = 13.dp),
             ) {

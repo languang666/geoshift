@@ -82,16 +82,19 @@ fun VectorMap(
     source: MapSource,
     camera: MapCamera,
     center: CenterRequest?,
+    onBearingChanged: (Double) -> Unit = {},
     onTap: (LatLon) -> Unit,
     onLongPress: (LatLon) -> Unit,
 ) {
     val context = LocalContext.current
     val tap = rememberUpdatedState(onTap)
     val longPress = rememberUpdatedState(onLongPress)
+    val bearingChanged = rememberUpdatedState(onBearingChanged)
     val layers = remember {
         MapLibre.getInstance(context.applicationContext)
         val options = MapLibreMapOptions.createFromAttributes(context).textureMode(true)
         VectorLayers(context, MapView(context, options).apply { onCreate(null) }, camera,
+            onBearingChanged = { bearingChanged.value(it) },
             onTap = { tap.value(it) }, onLongPress = { longPress.value(it) })
     }
     val view = layers.view
@@ -128,7 +131,7 @@ fun VectorMap(
         val zoom = request.zoom ?: maxOf(camera.zoom, 15.0)
         camera.target = request.target
         camera.zoom = zoom
-        layers.animateTo(request.target, zoom)
+        layers.animateTo(request.target, zoom, request.bearing)
     }
     LaunchedEffect(online, dark, source, layers) {
         MapLibre.setConnected(online)
@@ -153,6 +156,7 @@ private class VectorLayers(
     context: Context,
     val view: MapView,
     private val camera: MapCamera,
+    private val onBearingChanged: (Double) -> Unit,
     private val onTap: (LatLon) -> Unit,
     private val onLongPress: (LatLon) -> Unit,
 ) {
@@ -187,9 +191,7 @@ private class VectorLayers(
             m.uiSettings.apply {
                 isLogoEnabled = false
                 isAttributionEnabled = false // credited by the text overlay of the map screen
-                isCompassEnabled = true
-                compassGravity = Gravity.TOP or Gravity.START
-                setCompassMargins((16 * density).toInt(), (112 * density).toInt(), 0, 0)
+                isCompassEnabled = false // handled by native Compose compass button in MapScreen
                 isRotateGesturesEnabled = true
                 isTiltGesturesEnabled = true
             }
@@ -199,6 +201,7 @@ private class VectorLayers(
                 val p = m.cameraPosition
                 p.target?.let { camera.target = it.stored() }
                 camera.zoom = fromVectorZoom(p.zoom)
+                onBearingChanged(p.bearing)
             }
             m.addOnMapClickListener { onTap(it.stored()); true }
             m.addOnMapLongClickListener { onLongPress(it.stored()); true }
@@ -234,8 +237,11 @@ private class VectorLayers(
         }
     }
 
-    fun animateTo(target: LatLon, zoom: Double) {
-        map?.animateCamera(CameraUpdateFactory.newLatLngZoom(target.latLng(), toVectorZoom(zoom)), 500)
+    fun animateTo(target: LatLon, zoom: Double, bearing: Double? = null) {
+        val m = map ?: return
+        val currentBearing = m.cameraPosition.bearing
+        val pos = CameraPosition.Builder().target(target.latLng()).zoom(toVectorZoom(zoom)).bearing(bearing ?: currentBearing).build()
+        m.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 500)
     }
 
     fun route(points: List<LatLon>, editing: Boolean, anchors: List<LatLon>) {

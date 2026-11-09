@@ -37,7 +37,7 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Overlay
 
 /** A request to move the camera; a new [token] re-triggers the same target. */
-data class CenterRequest(val target: LatLon, val zoom: Double? = null, val token: Long = System.nanoTime())
+data class CenterRequest(val target: LatLon, val zoom: Double? = null, val bearing: Double? = null, val token: Long = System.nanoTime())
 
 class MapCamera(var target: LatLon, var zoom: Double = 15.0, var handledToken: Long? = null)
 

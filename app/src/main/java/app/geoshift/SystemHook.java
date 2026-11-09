@@ -211,6 +211,7 @@ final class SystemHook {
                 JSONObject c = current();
                 if (c != null) extras.putString("config", withLivePosition(c).toString());
                 extras.putBoolean("system", systemLocation);
+                extras.putBoolean("configReply", true);
                 break;
             }
             case "REPORT": {
@@ -455,6 +456,7 @@ final class SystemHook {
                     h.args[0] = wrap(FakeLocation.build(c, providerFor(name)));
                     noteProvider(name);
                 } catch (Throwable e) {
+                    h.setResult(null);
                     XposedBridge.log("Geoshift onReportLocation: " + e);
                 }
             }
@@ -482,7 +484,10 @@ final class SystemHook {
                 try {
                     h.setResult(FakeLocation.build(c, providerFor(name)));
                     noteProvider(name);
-                } catch (Throwable ignored) {}
+                } catch (Throwable e) {
+                    h.setResult(null);
+                    environmentReport("error", "缓存定位替换失败，已阻止返回真实数据：" + e.getClass().getSimpleName());
+                }
             }
         };
         int lastHooks = 0;
@@ -533,14 +538,17 @@ final class SystemHook {
                             if (!(last instanceof Location)) return;
                             String provider = ((Location) last).getProvider();
                             if (!INJECT_PROVIDERS.contains(provider) && !"passive".equals(provider)) return;
-                            h.args[0] = wrap(FakeLocation.build(c, providerFor(provider)));
+                            h.args[0] = LocationPacket.replace(c, h.args[0]);
                             try {
                                 Object identity = XposedHelpers.callMethod(h.thisObject, "getIdentity");
                                 lastDeliveryPackage = limited(String.valueOf(XposedHelpers.callMethod(identity, "getPackageName")), 100);
                             } catch (Throwable unavailable) { lastDeliveryPackage = "目标包名不可用"; }
                             deliveryHits.incrementAndGet();
                             noteProvider(provider);
-                        } catch (Throwable e) { XposedBridge.log("Geoshift delivery: " + e.getClass().getSimpleName()); }
+                        } catch (Throwable e) {
+                            h.setResult(null);
+                            environmentReport("error", "定位交付替换失败，已阻止返回真实数据：" + e.getClass().getSimpleName());
+                        }
                     }
                 });
                 count++;

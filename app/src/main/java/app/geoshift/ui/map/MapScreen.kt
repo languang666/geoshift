@@ -1,14 +1,22 @@
 package app.geoshift.ui.map
 
+import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +32,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -34,12 +43,16 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Directions
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PinDrop
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SportsEsports
@@ -54,6 +67,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -62,6 +77,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -71,15 +87,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.geoshift.Geo
 import app.geoshift.MapSource
 import app.geoshift.PortalStore
@@ -89,11 +113,13 @@ import app.geoshift.data.PortalActions
 import app.geoshift.data.PortalState
 import app.geoshift.data.routeLength
 import app.geoshift.ui.PortalViewModel
+import app.geoshift.ui.components.CoordinateRow
 import app.geoshift.ui.components.InputDialog
 import app.geoshift.ui.components.formatCoord
 import app.geoshift.ui.components.formatDistance
 import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.isDark
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -126,6 +152,7 @@ fun MapScreen(
     var searchGeneration by remember { mutableIntStateOf(0) }
     var addressGeneration by remember { mutableIntStateOf(0) }
     val camera = remember { MapCamera(r.position) }
+    var mapBearing by remember { mutableDoubleStateOf(0.0) }
     var bottomCardHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     // Everything but the plain OpenStreetMap layer is drawn by MapLibre (sharper, rotatable).
@@ -134,6 +161,51 @@ fun MapScreen(
 
     // Road routes: each section between tapped points is snapped to roads in the background.
     val appContext = LocalContext.current.applicationContext
+    var searchHistory by remember {
+        mutableStateOf(
+            appContext.getSharedPreferences("portal", Context.MODE_PRIVATE)
+                .getString("map_search_history", "")
+                ?.split("\n")
+                ?.filter { it.isNotBlank() }
+                ?: emptyList()
+        )
+    }
+
+    val saveSearchHistory: (String) -> Unit = { keyword ->
+        val updated = (listOf(keyword) + searchHistory.filter { it != keyword }).take(6)
+        searchHistory = updated
+        appContext.getSharedPreferences("portal", Context.MODE_PRIVATE)
+            .edit()
+            .putString("map_search_history", updated.joinToString("\n"))
+            .apply()
+    }
+
+    val clearSearchHistory: () -> Unit = {
+        searchHistory = emptyList()
+        appContext.getSharedPreferences("portal", Context.MODE_PRIVATE)
+            .edit()
+            .remove("map_search_history")
+            .apply()
+    }
+
+    val doSearch: (String) -> Unit = { kw ->
+        focus.clearFocus()
+        val keyword = kw.trim()
+        val generation = ++searchGeneration
+        if (keyword.isEmpty()) {
+            vm.toast("请输入地点关键词")
+        } else if (!s.settings.privacyAccepted) {
+            vm.toast("位置搜索需要联网，请先在设置中同意隐私说明")
+        } else {
+            saveSearchHistory(keyword)
+            vm.run<List<PortalActions.Place>>(onDone = {
+                if (searchGeneration == generation && !editing) {
+                    results = it
+                    if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
+                }
+            }) { search(keyword, camera.target) }
+        }
+    }
     val router = remember { RoadRouter(appContext) }
     var profileId by rememberSaveable { mutableStateOf(PortalStore.lastRoadProfile(appContext)) }
     val profile = RoadProfile.from(profileId)
@@ -186,6 +258,7 @@ fun MapScreen(
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
             online = s.settings.privacyAccepted, dark = isDark(s.settings.theme), source = s.settings.mapSource,
             camera = camera, center = centerRequest,
+            onBearingChanged = { mapBearing = it },
             onTap = { p -> if (editing) draft.add(p) else select(p) },
             onLongPress = { p -> if (!editing) select(p) },
         ) else OsmMap(
@@ -217,19 +290,55 @@ fun MapScreen(
                         }
                     }
                 } else {
-                    SearchBar(query, onQuery = { query = it; searchGeneration++; results = emptyList() }, onSearch = {
-                        focus.clearFocus()
-                        val keyword = query.trim()
-                        val generation = ++searchGeneration
-                        if (keyword.isEmpty()) vm.toast("请输入地点关键词")
-                        else if (!s.settings.privacyAccepted) vm.toast("位置搜索需要联网，请先在设置中同意隐私说明")
-                        else vm.run<List<PortalActions.Place>>(onDone = {
-                            if (searchGeneration == generation && !editing) {
-                                results = it
-                                if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
+                    SearchBar(
+                        query = query,
+                        onQuery = { query = it; searchGeneration++; results = emptyList() },
+                        onSearch = { doSearch(query) },
+                        onClear = { query = ""; searchGeneration++; results = emptyList() },
+                    )
+                }
+            }
+            AnimatedVisibility(query.isEmpty() && results.isEmpty() && searchHistory.isNotEmpty() && !editing) {
+                Surface(
+                    Modifier.padding(top = 6.dp).fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                    shadowElevation = 2.dp,
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Rounded.History,
+                            contentDescription = "搜索历史",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Row(
+                            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            searchHistory.forEach { item ->
+                                SuggestionChip(
+                                    onClick = {
+                                        query = item
+                                        doSearch(item)
+                                    },
+                                    label = { Text(item, style = MaterialTheme.typography.bodySmall, maxLines = 1) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = null,
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    ),
+                                )
                             }
-                        }) { search(keyword, camera.target) }
-                    }, onClear = { query = ""; searchGeneration++; results = emptyList() })
+                        }
+                        IconButton(onClick = clearSearchHistory, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Rounded.Close, "清除历史", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.outline)
+                        }
+                    }
                 }
             }
             AnimatedVisibility(!tipDismissed && !editing && results.isEmpty()) {
@@ -270,7 +379,19 @@ fun MapScreen(
             Modifier.align(Alignment.CenterEnd).statusBarsPadding()
                 .padding(top = 72.dp, end = 12.dp, bottom = with(density) { bottomCardHeight.toDp() }),
             verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            MapCompass(
+                bearing = mapBearing,
+                onClick = {
+                    if (abs(signedBearing(mapBearing)) > 1.0) {
+                        onCenter(CenterRequest(camera.target, camera.zoom, bearing = 0.0))
+                        vm.toast("已回正正北")
+                    } else {
+                        vm.toast("当前已指向正北（0°）")
+                    }
+                },
+            )
             ToolGroup {
                 Box {
                     MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}") { mapMenu = true }
@@ -303,6 +424,19 @@ fun MapScreen(
                 ToolDivider()
                 MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.overlay) {
                     vm.run(if (r.overlay) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { overlay(!r.overlay) }
+                }
+            }
+            ToolGroup {
+                MapTool(Icons.Rounded.Add, "放大") {
+                    val next = (camera.zoom + 1.0).coerceAtMost(19.0)
+                    camera.zoom = next
+                    onCenter(CenterRequest(camera.target, next))
+                }
+                ToolDivider()
+                MapTool(Icons.Rounded.Remove, "缩小") {
+                    val next = (camera.zoom - 1.0).coerceAtLeast(3.0)
+                    camera.zoom = next
+                    onCenter(CenterRequest(camera.target, next))
                 }
             }
         }
@@ -356,13 +490,22 @@ fun MapScreen(
                         vm.run(if (r.enabled) "位置切换成功" else "已设置为当前虚拟位置", onDone = { _: Unit -> selected = null }) { setLocation(sel) }
                     },
                     onStart = { vm.run("模拟定位已开启", onDone = { _: Unit -> selected = null }) { startPoint(sel) } },
+                    onRouteTo = {
+                        draft.clear()
+                        draft.add(r.position)
+                        draft.add(sel)
+                        selected = null
+                        editing = true
+                    },
                     onSave = { saveDialog = address },
+                    onCopyCoord = { vm.toast("位置坐标已复制到剪贴板") },
                 )
                 else -> StatusCard(s, onToggle = {
                     if (r.enabled) vm.run("模拟定位已关闭") { stop() }
                     else vm.run("模拟定位已开启") { if (r.routeMode && r.route.size >= 2) startRoute() else startPoint() }
                 }, onPause = { vm.run(if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
-                    onOpenSetup = onOpenSetup)
+                    onOpenSetup = onOpenSetup,
+                    onCopyCoord = { vm.toast("虚拟坐标已复制到剪贴板") })
             }
         }
 
@@ -458,28 +601,140 @@ private fun ToolDivider() =
     HorizontalDivider(Modifier.width(48.dp).padding(horizontal = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
 @Composable
-private fun MapTool(icon: ImageVector, description: String, active: Boolean = false, onClick: () -> Unit) {
+private fun MapTool(
+    icon: ImageVector,
+    description: String,
+    active: Boolean = false,
+    iconModifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Box(
         Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick)
             .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, description, modifier = Modifier.size(22.dp),
+        Icon(icon, description, modifier = iconModifier.size(22.dp),
             tint = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/**
+ * Compass dial widget: 3D beveled red/slate needle pointing to True North.
+ * Rotates smoothly in real time with map bearing; tap to reset bearing to True North.
+ */
+@Composable
+private fun MapCompass(
+    bearing: Double,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    val signed = signedBearing(bearing)
+    // Unwrapped needle angle: crossing north (359° → 1°) turns 2°, not a full circle.
+    val needle = remember { floatArrayOf(0f) }
+    val delta = ((-signed - needle[0]) % 360.0 + 540.0) % 360.0 - 180.0
+    needle[0] += delta.toFloat()
+    val animatedBearing by animateFloatAsState(
+        targetValue = needle[0],
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "compass",
+    )
+    val isFacingNorth = abs(signed) < 1.0
+
+    Surface(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            onClick()
+        },
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 3.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.size(48.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Canvas(
+                modifier = Modifier
+                    .size(28.dp)
+                    .rotate(animatedBearing)
+            ) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val halfW = size.width * 0.18f
+                val len = size.height * 0.44f
+
+                // North Needle - 3D beveled red
+                val northLeft = Path().apply {
+                    moveTo(cx, cy - len)
+                    lineTo(cx - halfW, cy)
+                    lineTo(cx, cy)
+                    close()
+                }
+                drawPath(northLeft, color = Color(0xFFDC3545))
+
+                val northRight = Path().apply {
+                    moveTo(cx, cy - len)
+                    lineTo(cx + halfW, cy)
+                    lineTo(cx, cy)
+                    close()
+                }
+                drawPath(northRight, color = Color(0xFFFF5252))
+
+                // South Needle - 3D beveled slate
+                val southLeft = Path().apply {
+                    moveTo(cx, cy + len)
+                    lineTo(cx - halfW, cy)
+                    lineTo(cx, cy)
+                    close()
+                }
+                drawPath(southLeft, color = Color(0xFF8A93A6))
+
+                val southRight = Path().apply {
+                    moveTo(cx, cy + len)
+                    lineTo(cx + halfW, cy)
+                    lineTo(cx, cy)
+                    close()
+                }
+                drawPath(southRight, color = Color(0xFFBCC5D4))
+
+                // Center pivot
+                drawCircle(color = Color.White, radius = halfW * 0.72f, center = Offset(cx, cy))
+                drawCircle(color = Color(0xFF1E2330), radius = halfW * 0.42f, center = Offset(cx, cy))
+            }
+
+            // Fixed North "N" mark at the top of dial
+            Text(
+                text = "N",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = if (isFacingNorth) Color(0xFFDC3545) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 2.dp),
+            )
+        }
     }
 }
 
 @Composable
 private fun BottomCard(content: @Composable () -> Unit) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
+    Surface(
+        Modifier.fillMaxWidth().animateContentSize(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 8.dp
+    ) {
         Column(Modifier.padding(18.dp)) { content() }
     }
 }
 
 /** Idle / running panel: state and position on the left, one round start-stop button on the right. */
 @Composable
-private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit, onOpenSetup: () -> Unit) {
+private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit, onOpenSetup: () -> Unit, onCopyCoord: () -> Unit) {
     val r = s.runtime
+    val haptic = LocalHapticFeedback.current
     val ready = s.settings.privacyAccepted && s.caps.preciseLocation &&
             (if (s.settings.lsposed) s.caps.hookActive else s.caps.mockSelected)
     val live = MaterialTheme.colorScheme.tertiary
@@ -508,7 +763,7 @@ private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit
                     )
                 }
                 Spacer(Modifier.size(4.dp))
-                Text(formatCoord(r.position.lat, r.position.lon), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"))
+                CoordinateRow(r.position.lat, r.position.lon, style = MaterialTheme.typography.titleMedium, onCopied = onCopyCoord)
                 Text(
                     when {
                         r.enabled && r.routeMode -> String.format(java.util.Locale.ROOT, "%s · %.0f km/h · %d%%",
@@ -521,17 +776,29 @@ private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit
                 )
             }
             if (r.enabled && r.routeMode) {
-                Surface(onClick = onPause, shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.size(48.dp)) {
+                Surface(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPause()
+                    },
+                    shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.size(48.dp)
+                ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(if (r.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (r.paused) "继续" else "暂停")
                     }
                 }
                 Spacer(Modifier.width(10.dp))
             }
-            Surface(onClick = onToggle, shape = CircleShape, shadowElevation = 2.dp,
+            Surface(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggle()
+                },
+                shape = CircleShape, shadowElevation = 2.dp,
                 color = if (r.enabled) Danger else MaterialTheme.colorScheme.primary,
-                contentColor = Color.White, modifier = Modifier.size(60.dp)) {
+                contentColor = Color.White, modifier = Modifier.size(60.dp)
+            ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(if (r.enabled) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (r.enabled) "停止模拟" else "开始模拟",
                         Modifier.size(30.dp))
@@ -562,7 +829,8 @@ private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit
 @Composable
 private fun PreviewCard(
     point: LatLon, address: String, distance: Double, running: Boolean,
-    onClose: () -> Unit, onSetVirtual: () -> Unit, onStart: () -> Unit, onSave: () -> Unit,
+    onClose: () -> Unit, onSetVirtual: () -> Unit, onStart: () -> Unit, onRouteTo: () -> Unit,
+    onSave: () -> Unit, onCopyCoord: () -> Unit,
 ) {
     BottomCard {
         Row(verticalAlignment = Alignment.Top) {
@@ -571,22 +839,28 @@ private fun PreviewCard(
                 Text(address.ifEmpty { "未知地址" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.size(4.dp))
-                Text("${formatCoord(point.lat, point.lon)} · 距虚拟位置 ${formatDistance(distance)}",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CoordinateRow(point.lat, point.lon, style = MaterialTheme.typography.bodySmall, onCopied = onCopyCoord)
+                    Text(" · 距虚拟位置 ${formatDistance(distance)}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "关闭") }
         }
         Spacer(Modifier.size(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (running) {
-                Button(onClick = onSetVirtual, modifier = Modifier.weight(1f)) { Text("设为虚拟位置") }
+                Button(onClick = onSetVirtual, modifier = Modifier.weight(1f)) { Text("设为虚拟位置", maxLines = 1) }
             } else {
                 Button(onClick = onStart, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("开始模拟", maxLines = 1)
                 }
-                FilledTonalButton(onClick = onSetVirtual, modifier = Modifier.weight(1f)) { Text("设为虚拟位置", maxLines = 1) }
+                FilledTonalButton(onClick = onSetVirtual, modifier = Modifier.weight(1f)) { Text("设为位置", maxLines = 1) }
             }
-            OutlinedButton(onClick = onSave, contentPadding = PaddingValues(horizontal = 14.dp)) {
+            FilledTonalButton(onClick = onRouteTo, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                Icon(Icons.Rounded.Directions, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("去这里", maxLines = 1)
+            }
+            OutlinedButton(onClick = onSave, contentPadding = PaddingValues(horizontal = 12.dp)) {
                 Icon(Icons.Rounded.Add, "添加到历史", Modifier.size(20.dp))
             }
         }
@@ -629,3 +903,6 @@ private fun RouteEditorCard(
         }
     }
 }
+
+/** Map bearing (0..360) as -180..180, so 359° counts as 1° west of north. */
+private fun signedBearing(bearing: Double): Double = ((bearing % 360.0) + 540.0) % 360.0 - 180.0

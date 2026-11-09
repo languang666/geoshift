@@ -1,5 +1,25 @@
 package app.geoshift.ui.settings
 
+import android.os.Build
+
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Build
 
@@ -65,17 +85,39 @@ import app.geoshift.ui.components.formatNumber
 import app.geoshift.ui.components.formatTime
 import org.json.JSONObject
 
-private data class NumberSetting(val key: String, val title: String, val unit: String, val hint: String)
+private data class NumberSetting(
+    val key: String,
+    val title: String,
+    val unit: String,
+    val hint: String,
+    val min: Double,
+    val max: Double,
+    val presets: List<Double>,
+    val defaultVal: Double,
+    val isInteger: Boolean = false,
+)
 
 private val NUMBER_SETTINGS = mapOf(
-    "interval" to NumberSetting("interval", "上报时间间隔", "毫秒",
-        "提示：过大的上报间隔将可能导致位置更新错误，过小的间隔可能导致系统缓冲区溢出而死机。建议值 1000。"),
-    "speedMultiplier" to NumberSetting("speedMultiplier", "速度倍率", "×",
-        "路线与摇杆移动速度 = 移动模式基础速度 × 倍率。范围 0.01–1000。"),
-    "altitude" to NumberSetting("altitude", "模拟海拔高度", "米",
-        "提示：中国大部分平原地区海拔在 0–500 米之间。"),
-    "accuracy" to NumberSetting("accuracy", "位置精度", "米",
-        "提示：精度值越小表示定位越精确，建议值 5–20 米。"),
+    "interval" to NumberSetting(
+        "interval", "上报时间间隔", "毫秒",
+        "提示：过大的上报间隔将可能导致位置更新错误，过小的间隔可能导致系统缓冲区溢出而死机。建议值 1000。",
+        min = 200.0, max = 5000.0, presets = listOf(500.0, 1000.0, 1500.0, 2000.0, 5000.0), defaultVal = 1000.0, isInteger = true,
+    ),
+    "speedMultiplier" to NumberSetting(
+        "speedMultiplier", "速度倍率", "×",
+        "路线与摇杆移动速度 = 移动模式基础速度 × 倍率。范围 0.01–1000。",
+        min = 0.1, max = 20.0, presets = listOf(0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 20.0), defaultVal = 1.0, isInteger = false,
+    ),
+    "altitude" to NumberSetting(
+        "altitude", "模拟海拔高度", "米",
+        "提示：中国大部分平原地区海拔在 0–500 米之间。",
+        min = 0.0, max = 1000.0, presets = listOf(0.0, 30.0, 100.0, 300.0, 500.0, 1000.0), defaultVal = 0.0, isInteger = false,
+    ),
+    "accuracy" to NumberSetting(
+        "accuracy", "位置精度", "米",
+        "提示：精度值越小表示定位越精确，建议值 5–20 米。",
+        min = 1.0, max = 50.0, presets = listOf(3.0, 5.0, 10.0, 15.0, 20.0, 50.0), defaultVal = 5.0, isInteger = false,
+    ),
 )
 
 @Composable
@@ -132,7 +174,7 @@ fun SettingsScreen(
             SettingRow("海拔高度", null, icon = Icons.Rounded.Terrain, value = "${formatNumber(st.altitude)} 米",
                 onClick = { number = NUMBER_SETTINGS["altitude"] })
             RowDivider()
-            SettingRow("随机抖动", "每秒额外偏移不超过 1 米", icon = Icons.Rounded.Shuffle, checked = st.jitter,
+            SettingRow("随机抖动", "平滑随机漂移，额外偏移不超过 1 米", icon = Icons.Rounded.Shuffle, checked = st.jitter,
                 onCheckedChange = { save("jitter", it, if (it) "位置随机抖动已开启" else "位置随机抖动已关闭") })
         }
 
@@ -155,7 +197,7 @@ fun SettingsScreen(
                 value = if (st.mapKeyConfigured) "已设置" else "未设置", onClick = { mapKey = true })
             RowDivider()
             SettingRow("外观", null, icon = Icons.Rounded.Palette,
-                value = when (st.theme) { "light" -> "浅色"; "dark" -> "深色"; else -> "跟随系统" }, onClick = { choice = "theme" })
+                value = when (st.theme) { "light" -> "浅色"; "dark" -> "深色"; "dynamic" -> "动态色彩"; else -> "跟随系统" }, onClick = { choice = "theme" })
         }
 
         SectionTitle("高级")
@@ -228,9 +270,9 @@ fun SettingsScreen(
             "altitude" -> formatNumber(st.altitude)
             else -> formatNumber(st.accuracy)
         }
-        InputDialog(n.title, initial = current, label = n.unit, hint = n.hint, number = true, onDismiss = { number = null }) { v ->
-            val d = v.toDoubleOrNull()
-            if (d == null) vm.toast("格式不正确，请输入数字") else save(n.key, if (n.key == "interval") d.toInt() else d,
+        NumberSettingDialog(n, initial = current, onDismiss = { number = null }) { d ->
+            number = null
+            save(n.key, if (n.key == "interval") d.toInt() else d,
                 when (n.key) {
                     "interval" -> "已设置上报间隔为 ${d.toInt()} 毫秒"
                     "speedMultiplier" -> "已设置速度倍率为 ${formatNumber(d)}"
@@ -246,8 +288,14 @@ fun SettingsScreen(
             onDismiss = { choice = null }) { save("backend", it, "已切换模拟类型") }
         "speedMode" -> ChoiceDialog("移动模式", SpeedMode.entries.map { it.key to "${it.label} · ${it.metresPerSecond} m/s" }, st.speedMode.key,
             onDismiss = { choice = null }) { save("speedMode", it) }
-        "theme" -> ChoiceDialog("外观", listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色"), st.theme,
-            onDismiss = { choice = null }) { save("theme", it, null) }
+        "theme" -> {
+            val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色", "dynamic" to "动态色彩 (Material You)")
+            } else {
+                listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色")
+            }
+            ChoiceDialog("外观", options, st.theme, onDismiss = { choice = null }) { save("theme", it, null) }
+        }
     }
     if (mapKey) {
         MapKeyDialog(configured = st.mapKeyConfigured, onDismiss = { mapKey = false }, onMessage = vm::toast,
@@ -269,6 +317,122 @@ fun SettingsScreen(
             confirmButton = { TextButton(onClick = { text = null }) { Text("关闭") } },
         )
     }
+}
+
+@Composable
+private fun NumberSettingDialog(
+    setting: NumberSetting,
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Double) -> Unit,
+) {
+    var textValue by remember(initial) { mutableStateOf(initial) }
+    val haptic = LocalHapticFeedback.current
+    val parsed = textValue.toDoubleOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(setting.title) },
+        text = {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                Text(setting.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(14.dp))
+
+                Text("快捷预设", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    setting.presets.forEach { preset ->
+                        val label = if (setting.isInteger) "${preset.toInt()} ${setting.unit}" else "${formatNumber(preset)} ${setting.unit}"
+                        val isSelected = parsed != null && kotlin.math.abs(parsed - preset) < 0.001
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                textValue = if (setting.isInteger) preset.toInt().toString() else formatNumber(preset)
+                            },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+
+                if (parsed != null && parsed in setting.min..setting.max) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("滑动调节", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Slider(
+                        value = parsed.toFloat(),
+                        onValueChange = { f ->
+                            val rounded = if (setting.isInteger) {
+                                (kotlin.math.round(f / 100.0) * 100).toInt().toDouble()
+                            } else if (setting.key == "speedMultiplier") {
+                                (kotlin.math.round(f * 10.0) / 10.0)
+                            } else {
+                                (kotlin.math.round(f * 2.0) / 2.0)
+                            }
+                            textValue = if (setting.isInteger) rounded.toInt().toString() else formatNumber(rounded)
+                        },
+                        valueRange = setting.min.toFloat()..setting.max.toFloat(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(if (setting.isInteger) "${setting.min.toInt()}" else formatNumber(setting.min),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (setting.isInteger) "${setting.max.toInt()}" else formatNumber(setting.max),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = textValue,
+                    onValueChange = { textValue = it },
+                    label = { Text("数值（${setting.unit}）") },
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val curr = textValue.toDoubleOrNull() ?: setting.defaultVal
+                                val step = if (setting.isInteger) 100.0 else if (setting.key == "speedMultiplier") 0.5 else 1.0
+                                val next = (curr - step).coerceAtLeast(if (setting.key == "speedMultiplier") 0.01 else 0.0)
+                                textValue = if (setting.isInteger) next.toInt().toString() else formatNumber(next)
+                            }) {
+                                Icon(Icons.Rounded.Remove, "减少")
+                            }
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val curr = textValue.toDoubleOrNull() ?: setting.defaultVal
+                                val step = if (setting.isInteger) 100.0 else if (setting.key == "speedMultiplier") 0.5 else 1.0
+                                val next = curr + step
+                                textValue = if (setting.isInteger) next.toInt().toString() else formatNumber(next)
+                            }) {
+                                Icon(Icons.Rounded.Add, "增加")
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val d = textValue.toDoubleOrNull()
+                if (d != null) onConfirm(d)
+            }) { Text("确定") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    textValue = if (setting.isInteger) setting.defaultVal.toInt().toString() else formatNumber(setting.defaultVal)
+                }) { Text("默认值") }
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        },
+    )
 }
 
 @Composable

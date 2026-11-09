@@ -180,21 +180,30 @@ private fun Root(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> 
             ) { padding ->
                 val openSetup = { page = Page.SETUP }
                 Box(Modifier.fillMaxSize()) {
-                when (tab) {
-                    Tab.MAP -> MapScreen(s, vm, padding, center, onCenter = { center = it }, onOpenSetup = openSetup)
-                    Tab.HISTORY -> HistoryScreen(s, vm, padding, historyTab,
-                        onShowOnMap = { p -> center = CenterRequest(p, 16.0); tab = Tab.MAP },
-                        onGoMock = { tab = Tab.MOCK }, onExport = onExport)
-                    Tab.MOCK -> MockScreen(s, vm, padding, onOpenSetup = openSetup,
-                        onOpenWifi = { page = Page.WIFI }, onOpenCell = { page = Page.CELL },
-                        onPickRoute = { historyTab = 1; tab = Tab.HISTORY })
-                    Tab.SETTINGS -> SettingsScreen(s, vm, padding, onOpenSetup = openSetup, onExport = onExport, onImport = onImport)
-                }
-                // Opaque status-bar strip so scrolled content never sits under the clock (the map stays full-bleed).
-                if (tab != Tab.MAP) Box(
-                    Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars)
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.96f)),
-                )
+                    AnimatedContent(
+                        targetState = tab,
+                        transitionSpec = {
+                            fadeIn(animationSpec = androidx.compose.animation.core.tween(180)) togetherWith
+                                fadeOut(animationSpec = androidx.compose.animation.core.tween(120))
+                        },
+                        label = "tabTransition",
+                    ) { currentTab ->
+                        when (currentTab) {
+                            Tab.MAP -> MapScreen(s, vm, padding, center, onCenter = { center = it }, onOpenSetup = openSetup)
+                            Tab.HISTORY -> HistoryScreen(s, vm, padding, historyTab,
+                                onShowOnMap = { p -> center = CenterRequest(p, 16.0); tab = Tab.MAP },
+                                onGoMock = { tab = Tab.MOCK }, onExport = onExport)
+                            Tab.MOCK -> MockScreen(s, vm, padding, onOpenSetup = openSetup,
+                                onOpenWifi = { page = Page.WIFI }, onOpenCell = { page = Page.CELL },
+                                onPickRoute = { historyTab = 1; tab = Tab.HISTORY })
+                            Tab.SETTINGS -> SettingsScreen(s, vm, padding, onOpenSetup = openSetup, onExport = onExport, onImport = onImport)
+                        }
+                    }
+                    // Opaque status-bar strip so scrolled content never sits under the clock (the map stays full-bleed).
+                    if (tab != Tab.MAP) Box(
+                        Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars)
+                            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.96f)),
+                    )
                 }
             }
         }

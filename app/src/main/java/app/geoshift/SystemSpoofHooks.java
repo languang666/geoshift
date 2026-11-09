@@ -45,6 +45,7 @@ final class SystemSpoofHooks {
     private final AtomicLong rawDrops = new AtomicLong();
     private final AtomicLong miuiHits = new AtomicLong();
     private final AtomicLong cellHits = new AtomicLong();
+    private final AtomicLong unknownOwners = new AtomicLong();
     private final List<String> installed = new ArrayList<>();
     private final List<String> missing = new ArrayList<>();
 
@@ -54,7 +55,13 @@ final class SystemSpoofHooks {
     private JSONObject forOwner(JSONObject c, Object proxy) {
         if (c == null) return null;
         if (!AppScope.selectedOnly(c)) return c;
-        return controller.covers(c, CallbackOwners.ownerOf(proxy)) ? c : null;
+        int uid = CallbackOwners.ownerOf(proxy);
+        if (uid < 0) {
+            long count = unknownOwners.incrementAndGet();
+            if (count == 1 || (count & (count - 1)) == 0)
+                controller.report("error", "回调归属未知 " + count + " 次：" + proxy.getClass().getName() + "；无法确认选中应用的保护范围");
+        }
+        return controller.covers(c, uid) ? c : null;
     }
 
     /** For an app the simulation does not cover: a simulated fix becomes the real one (or null). */
@@ -79,8 +86,10 @@ final class SystemSpoofHooks {
                     return;
                 }
                 List<Location> replaced = new ArrayList<>(Math.max(1, original.size()));
-                for (Object item : original) replaced.add(fake(c, item));
-                if (replaced.isEmpty()) replaced.add(fake(c, null));
+                try {
+                    for (Object item : original) replaced.add(fake(c, item));
+                    if (replaced.isEmpty()) replaced.add(fake(c, null));
+                } catch (Throwable e) { dropFailed(h, "定位回调", e); return; }
                 h.args[0] = replaced;
                 hit(locationHits);
             }
@@ -94,7 +103,8 @@ final class SystemSpoofHooks {
                     h.args[0] = realFor(all, h.args[0]);
                     return;
                 }
-                h.args[0] = fake(c, h.args[0]);
+                try { h.args[0] = fake(c, h.args[0]); }
+                catch (Throwable e) { dropFailed(h, "单次定位回调", e); return; }
                 hit(locationHits);
             }
         });
@@ -103,7 +113,8 @@ final class SystemSpoofHooks {
                 @Override protected void beforeHookedMethod(MethodHookParam h) {
                     JSONObject c = forOwner(controller.gnss(), h.thisObject);
                     if (c == null || h.args.length == 0) return;
-                    h.args[0] = FakeEnvironment.gnss(c);
+                    try { h.args[0] = FakeEnvironment.gnss(c); }
+                    catch (Throwable e) { dropFailed(h, "卫星状态", e); return; }
                     hit(gnssHits);
                 }
             });
@@ -156,7 +167,7 @@ final class SystemSpoofHooks {
                 try {
                     h.args[0] = FakeEnvironment.cellsOrEmpty(c);
                     hit(cellHits);
-                } catch (Throwable e) { controller.report("error", "基站列表回调替换失败：" + e.getClass().getSimpleName()); }
+                } catch (Throwable e) { dropFailed(h, "基站列表回调", e); }
             }
         });
         hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onCellLocationChanged", "基站位置回调", new XC_MethodHook() {
@@ -166,7 +177,7 @@ final class SystemSpoofHooks {
                 try {
                     h.args[0] = FakeEnvironment.cellIdentityOrEmpty(c);
                     hit(cellHits);
-                } catch (Throwable e) { controller.report("error", "基站位置回调替换失败：" + e.getClass().getSimpleName()); }
+                } catch (Throwable e) { dropFailed(h, "基站位置回调", e); }
             }
         });
         hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onServiceStateChanged", "网络状态回调", new XC_MethodHook() {
@@ -176,7 +187,7 @@ final class SystemSpoofHooks {
                 try {
                     h.args[0] = FakeEnvironment.serviceState(h.args[0], c);
                     hit(cellHits);
-                } catch (Throwable e) { controller.report("error", "网络状态回调替换失败：" + e.getClass().getSimpleName()); }
+                } catch (Throwable e) { dropFailed(h, "网络状态回调", e); }
             }
         });
         hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onBarringInfoChanged", "接入限制回调", new XC_MethodHook() {
@@ -185,7 +196,7 @@ final class SystemSpoofHooks {
                 try {
                     h.args[0] = XposedHelpers.callMethod(h.args[0], "createLocationInfoSanitizedCopy");
                     hit(cellHits);
-                } catch (Throwable e) { controller.report("error", "接入限制回调替换失败：" + e.getClass().getSimpleName()); }
+                } catch (Throwable e) { dropFailed(h, "接入限制回调", e); }
             }
         });
         hook(loader, "com.android.internal.telephony.IPhoneStateListener$Stub$Proxy", "onRegistrationFailed", "注册失败回调", new XC_MethodHook() {
@@ -195,7 +206,7 @@ final class SystemSpoofHooks {
                 try {
                     h.args[0] = FakeEnvironment.cellIdentityOrEmpty(c);
                     hit(cellHits);
-                } catch (Throwable e) { controller.report("error", "注册失败回调替换失败：" + e.getClass().getSimpleName()); }
+                } catch (Throwable e) { dropFailed(h, "注册失败回调", e); }
             }
         });
         controller.report(missing.isEmpty() ? "installed" : "error",
@@ -229,7 +240,8 @@ final class SystemSpoofHooks {
             @Override protected void afterHookedMethod(MethodHookParam h) {
                 JSONObject c = miuiTarget(controller.location(), h.args);
                 if (c == null) return;
-                h.setResult(fakeLocationLike(c, h.getResult(), ((Method) h.method).getReturnType()));
+                try { h.setResult(fakeLocationLike(c, h.getResult(), ((Method) h.method).getReturnType())); }
+                catch (Throwable e) { dropFailed(h, "小米模糊定位", e); return; }
                 hit(miuiHits);
             }
         });
@@ -278,9 +290,9 @@ final class SystemSpoofHooks {
                 List<Location> replaced = new ArrayList<>();
                 for (Object item : original) replaced.add(fake(c, item));
                 if (replaced.isEmpty()) replaced.add(fake(c, null));
-                XposedHelpers.setObjectField(result, "mLocations", replaced);
-            } catch (Throwable ignored) {}
-            return result;
+                // Provider caches may share this object with callers outside the selected scope.
+                return XposedHelpers.callStaticMethod(result.getClass(), "create", replaced);
+            } catch (Throwable error) { throw new IllegalStateException("Unable to build independent location reply", error); }
         }
         return Location.class.isAssignableFrom(returnType) ? fake(c, null) : null;
     }
@@ -301,6 +313,11 @@ final class SystemSpoofHooks {
         return null;
     }
 
+    private void dropFailed(XC_MethodHook.MethodHookParam h, String label, Throwable error) {
+        h.setResult(defaultValue(((Method) h.method).getReturnType()));
+        controller.report("error", label + "替换失败，已阻止返回真实数据：" + error.getClass().getSimpleName());
+    }
+
     private void hook(ClassLoader loader, String className, String method, String label, XC_MethodHook hook) {
         hookMethods(XposedHelpers.findClassIfExists(className, loader), method, label, true, hook);
     }
@@ -319,16 +336,8 @@ final class SystemSpoofHooks {
     }
 
     private static Location fake(JSONObject config, Object original) {
-        String provider = original instanceof Location ? ((Location) original).getProvider() : null;
-        if (provider == null || provider.isEmpty() || "passive".equals(provider)) provider = "fused";
-        // Keep the moment of the original fix (batched deliveries hold several past fixes).
-        long at = android.os.SystemClock.elapsedRealtime();
-        if (original instanceof Location) {
-            long nanos = ((Location) original).getElapsedRealtimeNanos();
-            if (nanos > 0 && at - nanos / 1_000_000L < 10 * 60_000L) at = Math.min(at, nanos / 1_000_000L);
-        }
         try {
-            return FakeLocation.build(config, provider, at);
+            return FakeLocation.replace(config, original);
         } catch (Exception e) {
             // LSPosed logs hook exceptions and then runs the original call.
             throw new IllegalStateException("Geoshift fake location", e);

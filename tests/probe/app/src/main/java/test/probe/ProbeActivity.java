@@ -99,6 +99,17 @@ public class ProbeActivity extends Activity {
         results.put(key, value);
     }
 
+    private static String wifiInfo(WifiInfo info) {
+        if (info == null) return "null (details withheld)";
+        String value = "ssid=" + info.getSSID() + " bssid=" + info.getBSSID()
+                + " frequency=" + info.getFrequency() + " rssi=" + info.getRssi()
+                + " standard=" + info.getWifiStandard() + " networkId=" + info.getNetworkId()
+                + " passpoint=" + info.getPasspointFqdn() + " provider=" + info.getPasspointProviderFriendlyName();
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            value += " mld=" + info.getApMldMacAddress() + " mloLinks=" + info.getAffiliatedMloLinks();
+        return value;
+    }
+
     @SuppressWarnings({"MissingPermission", "deprecation"})
     private void run() {
         running = true;
@@ -220,7 +231,8 @@ public class ProbeActivity extends Activity {
                     new android.net.ConnectivityManager.NetworkCallback(android.net.ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO) {
                         @Override public void onCapabilitiesChanged(android.net.Network n, android.net.NetworkCapabilities nc) {
                             Object info = nc.getTransportInfo();
-                            if (info instanceof WifiInfo) put("7.wifi.networkCallback", "ssid=" + ((WifiInfo) info).getSSID() + " bssid=" + ((WifiInfo) info).getBSSID());
+                            if (info instanceof WifiInfo) put("7.wifi.networkCallback", wifiInfo((WifiInfo) info));
+                            else put("7.wifi.networkCallback", "transportInfo=" + info);
                         }
                     });
         } catch (Throwable e) { put("7.wifi.networkCallback", "ERR " + e); }
@@ -261,13 +273,23 @@ public class ProbeActivity extends Activity {
         try {
             List<ScanResult> scans = wifi.getScanResults();
             StringBuilder b = new StringBuilder("count=" + scans.size());
-            for (ScanResult r : scans) b.append(" | ").append(r.SSID).append(" ").append(r.BSSID);
+            for (ScanResult r : scans) b.append(" | ").append(r.SSID).append(" ").append(r.BSSID)
+                    .append(" frequency=").append(r.frequency).append(" rssi=").append(r.level).append(" timestamp=").append(r.timestamp);
             put("7.wifi.scan", b.toString());
         } catch (Throwable e) { put("7.wifi.scan", "ERR " + e); }
         try {
             WifiInfo info = wifi.getConnectionInfo();
-            put("7.wifi.connection", "ssid=" + info.getSSID() + " bssid=" + info.getBSSID());
+            put("7.wifi.connection", wifiInfo(info));
         } catch (Throwable e) { put("7.wifi.connection", "ERR " + e); }
+        try {
+            android.net.ConnectivityManager cm = getSystemService(android.net.ConnectivityManager.class);
+            for (android.net.Network network : cm.getAllNetworks()) {
+                android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(network);
+                if (nc == null || !nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) continue;
+                Object info = nc.getTransportInfo();
+                put("7.wifi.capabilities." + network, info instanceof WifiInfo ? wifiInfo((WifiInfo) info) : "transportInfo=" + info);
+            }
+        } catch (Throwable e) { put("7.wifi.capabilities", "ERR " + e); }
         try { put("8.cell.getAllCellInfo", cells(tm.getAllCellInfo())); } catch (Throwable e) { put("8.cell.getAllCellInfo", "ERR " + e); }
         try { put("8.cell.getCellLocation", String.valueOf(tm.getCellLocation())); } catch (Throwable e) { put("8.cell.getCellLocation", "ERR " + e); }
         try { put("8.cell.getServiceState", serviceCells(tm.getServiceState())); } catch (Throwable e) { put("8.cell.getServiceState", "ERR " + e); }

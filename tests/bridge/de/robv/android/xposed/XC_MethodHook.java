@@ -10,9 +10,12 @@ public class XC_MethodHook {
         Object result;
         Throwable error;
         boolean early;
+        private final java.util.Map<String,Object> extras=new java.util.HashMap<>();
         public Object getResult(){return result;}
         public void setResult(Object value){result=value;error=null;early=true;}
         public boolean hasThrowable(){return error!=null;}
+        public void setObjectExtra(String key,Object value){extras.put(key,value);}
+        public Object getObjectExtra(String key){return extras.get(key);}
     }
     public final class Unhook { public void unhook(){ XposedBridge.remove(XC_MethodHook.this); } }
 }

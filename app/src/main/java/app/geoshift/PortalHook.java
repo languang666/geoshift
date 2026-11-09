@@ -41,10 +41,9 @@ public final class PortalHook implements IXposedHookLoadPackage {
 
     private static volatile Context context;
     private static boolean attachHooked;
-    private static JSONObject cached;
-    private static volatile boolean systemLocation;
+    private static final ConfigCache configCache = new ConfigCache(CONFIG_TTL_MS);
+    private static long lastConfigErrorAt = -REPORT_INTERVAL_MS;
     private static String processName = "";
-    private static long readAt;
     private static final Set<String> installed = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
     private static final Map<String, Long> reports = new ConcurrentHashMap<>();
     private static final Map<String, String> reportStages = new ConcurrentHashMap<>();
@@ -89,22 +88,29 @@ public final class PortalHook implements IXposedHookLoadPackage {
 
     // ---- Configuration ------------------------------------------------------------------------
 
-    /** Returns a short-lived cached copy of the config held by system_server, or null. */
+    /** Preserve the last accepted state on IPC failure; a confirmed stop clears it. */
     private static synchronized JSONObject config() {
         Context c = context;
         if (c == null) return null;
         long now = SystemClock.elapsedRealtime();
-        if (readAt != 0 && now - readAt < CONFIG_TTL_MS) return cached;
-        readAt = now;
-        try {
+        JSONObject snapshot = configCache.get(now, () -> {
             Bundle b = command(c, "GET", new Bundle());
-            String json = b == null ? null : b.getString("config");
-            cached = json == null ? null : new JSONObject(json);
-            systemLocation = b != null && b.getBoolean("system");
-        } catch (Throwable unavailable) {
-            cached = null;
+            // Stock sendExtraCommand can return unchanged extras; that is not a confirmed stop.
+            if (b == null || !b.getBoolean("configReply") || b.containsKey("error"))
+                throw new IllegalStateException("System configuration reply unavailable");
+            String json = b.getString("config");
+            if (json == null) return null;
+            JSONObject next = new JSONObject(json);
+            if (next.optJSONObject("settings") == null || next.optJSONObject("runtime") == null)
+                throw new IllegalArgumentException("Incomplete system configuration");
+            return next;
+        });
+        Throwable failure = configCache.failure();
+        if (failure != null && now - lastConfigErrorAt >= REPORT_INTERVAL_MS) {
+            lastConfigErrorAt = now;
+            XposedBridge.log("Geoshift configuration unavailable; retaining last accepted state: " + failure.getClass().getSimpleName());
         }
-        return cached;
+        return snapshot;
     }
 
     /** Sends a command to the system-framework hook; the bundle comes back filled in. */
@@ -174,6 +180,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
     private static final java.util.Set<String> BLUETOOTH_PACKAGES =
             new java.util.HashSet<>(java.util.Arrays.asList("com.android.bluetooth", "com.google.android.bluetooth"));
     private static final java.util.concurrent.atomic.AtomicLong bleDrops = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong bleUnknownOwners = new java.util.concurrent.atomic.AtomicLong();
 
     /**
      * Bluetooth process (LSPosed scope "蓝牙"): while the environment is simulated, apps receive no
@@ -185,7 +192,15 @@ public final class PortalHook implements IXposedHookLoadPackage {
         XC_MethodHook drop = new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam h) {
                 JSONObject c = active("environment");
-                if (c == null || !AppScope.covers(c, scanOwner(h))) return;
+                if (c == null) return;
+                int uid = scanOwner(h);
+                if (uid < 0 && AppScope.selectedOnly(c)) {
+                    long n = bleUnknownOwners.incrementAndGet();
+                    if (n == 1 || (n & (n - 1)) == 0)
+                        report("bluetooth", new IllegalStateException("Unknown scan owner"), "error",
+                                "蓝牙扫描归属未知 " + n + " 次；无法确认选中应用的保护范围");
+                }
+                if (!AppScope.covers(c, uid)) return;
                 h.setResult(null);
                 long n = bleDrops.incrementAndGet();
                 report("bluetooth", null, "read", "已拦截蓝牙扫描结果 " + n + " 次");
@@ -303,7 +318,10 @@ public final class PortalHook implements IXposedHookLoadPackage {
                     else if ("getCellLocation".equals(name)) h.setResult(FakeEnvironment.cellIdentityOrEmpty(c));
                     else return;
                     report("cell", null, "read", "电话服务已替换基站查询：" + name);
-                } catch (Throwable e) { report("cell", e, "error", "电话服务基站查询替换失败"); }
+                } catch (Throwable e) {
+                    h.setResult(null);
+                    report("cell", e, "error", "电话服务基站查询替换失败，已阻止返回真实数据");
+                }
             }
         };
         for (String name : new String[]{"getAllCellInfo", "getCellLocation", "getNeighboringCellInfo",
@@ -320,7 +338,10 @@ public final class PortalHook implements IXposedHookLoadPackage {
                         XposedHelpers.callMethod(a, "onCellInfo", FakeEnvironment.cellsOrEmpty(c));
                         h.setResult(null); // Answered; skip the real modem request.
                         report("cell", null, "read", "电话服务已替换基站刷新回调");
-                    } catch (Throwable e) { report("cell", e, "error", "基站刷新回调替换失败"); }
+                    } catch (Throwable e) {
+                        h.setResult(null);
+                        report("cell", e, "error", "基站刷新回调替换失败，已阻止真实请求");
+                    }
                     return;
                 }
             }
@@ -365,6 +386,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
                     }
                     report(feature, null);
                 } catch (Throwable e) {
+                    h.setResult(null);
                     report(feature, e);
                 }
             }
@@ -389,6 +411,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
                     h.setResult(location(c, h.getResult()));
                     report("location", null);
                 } catch (Throwable e) {
+                    h.setResult(null);
                     report("location", e);
                 }
             }
@@ -411,7 +434,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
                                     delivered = location(c, value);
                                     report("location", null);
                                 }
-                            } catch (Throwable e) { report("location", e); }
+                            } catch (Throwable e) { delivered = null; report("location", e); }
                             callback.accept(delivered);
                         };
                         break;
@@ -441,6 +464,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
                             ? "\"" + w.getString("ssid") + "\"" : w.getString("bssid"));
                     report("wifi", null);
                 } catch (Throwable e) {
+                    h.setResult(null);
                     report("wifi", e);
                 }
             }
@@ -478,6 +502,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
                     h.setResult(cells(c));
                     report("cell", null);
                 } catch (Throwable e) {
+                    h.setResult(null);
                     report("cell", e);
                 }
             }

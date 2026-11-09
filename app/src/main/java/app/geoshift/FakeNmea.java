@@ -57,7 +57,8 @@ final class FakeNmea {
         String line = real.trim();
         if (line.length() < 7 || line.charAt(0) != '$' || line.charAt(1) == 'P') return out;
         String talker = line.substring(1, 3), type = line.substring(3, 6);
-        if ("TXT".equals(type)) { out.add(real); return out; } // Chip status text; carries no position.
+        // Free-form receiver text is not a validated position-free payload.
+        if ("TXT".equals(type)) return out;
         Burst b = burst(config);
         Location l = b.fix;
         List<FakeEnvironment.Sat> sky = b.sky;

@@ -84,16 +84,43 @@ final class WifiPrivacyHooks {
         classLoading = Collections.emptySet();
     }
 
-    /** Applies the simulated identity to a WifiInfo copy (preset, or the real SSID with a hidden BSSID). */
-    private static void disguise(Object info, org.json.JSONObject c) {
+    /** Link fields copied to the rebuilt WifiInfo: they keep the connection usable and name no access point. */
+    private static final String[][] LINK_FIELDS = {
+            {"getNetworkId", "setNetworkId", "int"}, {"getRssi", "setRssi", "int"},
+            {"getFrequency", "setFrequency", "int"}, {"getLinkSpeed", "setLinkSpeed", "int"},
+            {"getTxLinkSpeedMbps", "setTxLinkSpeedMbps", "int"}, {"getRxLinkSpeedMbps", "setRxLinkSpeedMbps", "int"},
+            {"getWifiStandard", "setWifiStandard", "int"}};
+
+    /** An empty WifiInfo with the real connection state only; returned when a rewrite fails. */
+    private static Object blank(Object original) {
+        Object info = XposedHelpers.newInstance(original.getClass());
+        XposedHelpers.callMethod(info, "setSupplicantState", XposedHelpers.callMethod(original, "getSupplicantState"));
+        return info;
+    }
+
+    /** Build from an empty WifiInfo: copying the real one retains SSID, MLO and Passpoint identities. */
+    private static Object disguise(Object original, org.json.JSONObject c) {
+        Object info = blank(original);
+        // Apps check network id, IP and signal to decide whether Wi-Fi is usable; none of them identify the AP.
+        for (String[] f : LINK_FIELDS) {
+            try { XposedHelpers.callMethod(info, f[1], XposedHelpers.callMethod(original, f[0])); }
+            catch (Throwable unavailable) {}
+        }
+        try { XposedHelpers.setObjectField(info, "mIpAddress", XposedHelpers.getObjectField(original, "mIpAddress")); }
+        catch (Throwable unavailable) {}
         org.json.JSONObject preset = FakeEnvironment.wifiPreset(c);
         if (preset == null) {
             XposedHelpers.callMethod(info, "setBSSID", HIDDEN_BSSID);
-            return;
+            XposedHelpers.callMethod(info, "setSSID", (Object) null);
+            return info;
         }
         XposedHelpers.callMethod(info, "setBSSID", preset.optString("bssid").toLowerCase(java.util.Locale.ROOT));
         Object ssid = FakeEnvironment.wifiSsid(preset.optString("ssid"));
-        if (ssid != null) XposedHelpers.callMethod(info, "setSSID", ssid);
+        if (ssid == null) throw new IllegalStateException("WifiSsid unavailable");
+        XposedHelpers.callMethod(info, "setSSID", ssid);
+        XposedHelpers.callMethod(info, "setFrequency", FakeEnvironment.wifiFrequency(preset));
+        XposedHelpers.callMethod(info, "setRssi", FakeEnvironment.wifiRssi(preset));
+        return info;
     }
 
     private void installClass(Class<?> type) {
@@ -107,7 +134,11 @@ final class WifiPrivacyHooks {
                     h.setResult(ReplyFactory.list(expected, FakeEnvironment.scanResults(c)));
                     controller.report(null, "read", FakeEnvironment.wifiPreset(c) == null
                             ? "扫描结果已隐藏真实 Wi-Fi" : "扫描结果已替换为预设 Wi-Fi");
-                } catch (Throwable e) { controller.report(e, "error", "扫描回复类型不兼容，未能替换"); }
+                } catch (Throwable e) {
+                    h.setResult(null); // Never return the original access points after a rewrite failure.
+                    try { h.setResult(ReplyFactory.emptyList(((Method) h.method).getReturnType())); } catch (Throwable ignored) {}
+                    controller.report(e, "error", "扫描替换失败，已阻止返回真实结果");
+                }
             }
         }).size();
         XposedBridge.hookAllMethods(type, "getConnectionInfo", new XC_MethodHook() {
@@ -115,12 +146,15 @@ final class WifiPrivacyHooks {
                 org.json.JSONObject c = controller.activeFor(Binder.getCallingUid());
                 if (c == null || h.hasThrowable() || h.getResult() == null) return;
                 try {
-                    Object original = h.getResult();
-                    Object copy = XposedHelpers.newInstance(original.getClass(), original);
-                    disguise(copy, c);
-                    h.setResult(copy);
-                    controller.report(null, "read", FakeEnvironment.wifiPreset(c) == null ? "连接信息已隐藏 BSSID" : "连接信息已替换为预设 Wi-Fi");
-                } catch (Throwable e) { controller.report(e, "error", "连接信息替换失败"); }
+                    h.setResult(disguise(h.getResult(), c));
+                    controller.report(null, "read", FakeEnvironment.wifiPreset(c) == null ? "连接身份已隐藏" : "连接信息已替换为预设 Wi-Fi");
+                } catch (Throwable e) {
+                    // Apps rarely null-check getConnectionInfo(); an empty WifiInfo hides the AP without crashing them.
+                    Object fallback = null;
+                    try { fallback = blank(h.getResult()); } catch (Throwable ignored) {}
+                    h.setResult(fallback);
+                    controller.report(e, "error", "连接信息替换失败，已阻止返回真实结果");
+                }
             }
         });
         if (scans > 0) {
@@ -150,13 +184,15 @@ final class WifiPrivacyHooks {
                 try {
                     Object info = XposedHelpers.callMethod(nc, "getTransportInfo");
                     if (info == null || !"android.net.wifi.WifiInfo".equals(info.getClass().getName())) return;
-                    Object copy = XposedHelpers.newInstance(info.getClass(), info);
-                    disguise(copy, c);
                     Object result = XposedHelpers.newInstance(nc.getClass(), nc);
-                    XposedHelpers.callMethod(result, "setTransportInfo", copy);
+                    XposedHelpers.callMethod(result, "setTransportInfo", (Object) null);
                     h.setResult(result);
+                    XposedHelpers.callMethod(result, "setTransportInfo", disguise(info, c));
                     controller.report(null, "read", "网络连接信息中的 Wi-Fi 已替换");
-                } catch (Throwable e) { controller.report(e, "error", "网络连接信息中的 Wi-Fi 替换失败"); }
+                } catch (Throwable e) {
+                    if (h.getResult() == nc) h.setResult(null);
+                    controller.report(e, "error", "网络连接信息替换失败，已阻止返回真实 Wi-Fi");
+                }
             }
         });
     }

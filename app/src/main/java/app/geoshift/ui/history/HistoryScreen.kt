@@ -1,6 +1,8 @@
 package app.geoshift.ui.history
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -23,9 +25,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radar
@@ -33,6 +38,7 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,12 +48,18 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,26 +70,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.geoshift.data.RoadProfile
 import app.geoshift.data.LatLon
 import app.geoshift.data.PortalState
+import app.geoshift.data.RoadProfile
 import app.geoshift.ui.PortalViewModel
 import app.geoshift.ui.components.ConfirmDialog
 import app.geoshift.ui.components.EmptyState
-import app.geoshift.ui.components.PageHeader
-import androidx.compose.foundation.border
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import app.geoshift.ui.components.IconBadge
 import app.geoshift.ui.components.InputDialog
+import app.geoshift.ui.components.PageHeader
 import app.geoshift.ui.components.formatCoord
 import app.geoshift.ui.components.formatDistance
 import app.geoshift.ui.components.formatTime
@@ -109,6 +116,20 @@ fun HistoryScreen(
     var confirmDelete by remember { mutableStateOf<HistoryRow?>(null) }
     var rename by remember { mutableStateOf<HistoryRow?>(null) }
     var detail by remember { mutableStateOf<String?>(null) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmBatchDelete by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(tab) {
+        selectionMode = false
+        selectedIds = emptySet()
+    }
+
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        selectedIds = emptySet()
+    }
 
     val rows = when (tab) {
         0 -> s.locations.map {
@@ -132,14 +153,42 @@ fun HistoryScreen(
         }
 
     Column(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
-        PageHeader("收藏") {
-            IconButton(onClick = onExport) { Icon(Icons.Rounded.Upload, "导出备份") }
-            Box {
-                IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "排序") }
-                DropdownMenu(sortMenu, onDismissRequest = { sortMenu = false }) {
-                    Sort.entries.forEach {
-                        DropdownMenuItem(text = { Text(it.label, fontWeight = if (it == sort) FontWeight.Bold else null) },
-                            onClick = { sort = it; sortMenu = false })
+        if (selectionMode) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { selectionMode = false; selectedIds = emptySet() }) {
+                    Icon(Icons.Rounded.Close, "退出多选")
+                }
+                Text("已选 ${selectedIds.size} 项", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    selectedIds = if (selectedIds.size == rows.size) emptySet() else rows.map { it.id }.toSet()
+                }) {
+                    Text(if (selectedIds.size == rows.size) "取消全选" else "全选")
+                }
+                if (selectedIds.isNotEmpty()) {
+                    IconButton(onClick = { confirmBatchDelete = true }) {
+                        Icon(Icons.Rounded.Delete, "删除选中", tint = Danger)
+                    }
+                }
+            }
+        } else {
+            PageHeader("收藏") {
+                if (rows.isNotEmpty()) {
+                    IconButton(onClick = { selectionMode = true }) {
+                        Icon(Icons.Rounded.Checklist, "批量管理")
+                    }
+                }
+                IconButton(onClick = onExport) { Icon(Icons.Rounded.Upload, "导出备份") }
+                Box {
+                    IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, "排序") }
+                    DropdownMenu(sortMenu, onDismissRequest = { sortMenu = false }) {
+                        Sort.entries.forEach {
+                            DropdownMenuItem(text = { Text(it.label, fontWeight = if (it == sort) FontWeight.Bold else null) },
+                                onClick = { sort = it; sortMenu = false })
+                        }
                     }
                 }
             }
@@ -155,6 +204,7 @@ fun HistoryScreen(
             value = query, onValueChange = { query = it },
             placeholder = { Text(when (tab) { 1 -> "搜索路线"; 2 -> "搜索环境记录"; else -> "搜索位置" }) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "清除") } },
             singleLine = true, shape = RoundedCornerShape(16.dp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -174,7 +224,37 @@ fun HistoryScreen(
         } else {
             LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(rows, key = { it.key + it.id }) { row ->
-                    SwipeRow(row, onClick = { sheet = row }, onDelete = { confirmDelete = row })
+                    if (selectionMode) {
+                        val isSelected = selectedIds.contains(row.id)
+                        ListItem(
+                            headlineContent = { Text(row.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium) },
+                            supportingContent = {
+                                Column {
+                                    Text(row.detail, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(formatTime(row.time), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            },
+                            leadingContent = {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { checked ->
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        selectedIds = if (checked) selectedIds + row.id else selectedIds - row.id
+                                    },
+                                )
+                            },
+                            trailingContent = { IconBadge(row.icon) },
+                            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                            modifier = Modifier.clip(RoundedCornerShape(18.dp))
+                                .border(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedIds = if (isSelected) selectedIds - row.id else selectedIds + row.id
+                                },
+                        )
+                    } else {
+                        SwipeRow(row, onClick = { sheet = row }, onDelete = { confirmDelete = row })
+                    }
                 }
             }
         }
@@ -232,6 +312,30 @@ fun HistoryScreen(
         ConfirmDialog("删除$what", "您确定要删除「${row.name}」吗？此操作无法撤销。", confirm = "删除", danger = true,
             onDismiss = { confirmDelete = null }) {
             vm.run("${what}已成功删除") { delete(row.key, row.id) }
+        }
+    }
+    // Search or sort can hide selected rows; only visible rows stay selected (and get deleted).
+    val visibleIds = rows.map { it.id }.toSet()
+    LaunchedEffect(visibleIds) { selectedIds = selectedIds intersect visibleIds }
+
+    if (confirmBatchDelete) {
+        val what = when (tab) { 0 -> "位置"; 1 -> "路线"; else -> "环境记录" }
+        ConfirmDialog(
+            "批量删除$what",
+            "确定要删除选中的 ${selectedIds.size} 项$what 吗？此操作无法撤销。",
+            confirm = "批量删除",
+            danger = true,
+            onDismiss = { confirmBatchDelete = false },
+        ) {
+            val key = when (tab) { 0 -> "locations"; 1 -> "routes"; else -> "environments" }
+            val ids = (selectedIds intersect visibleIds).toList()
+            val count = ids.size
+            selectionMode = false
+            selectedIds = emptySet()
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            vm.run("已成功删除 ${count} 项$what") {
+                ids.forEach { delete(key, it) }
+            }
         }
     }
     rename?.let { row ->

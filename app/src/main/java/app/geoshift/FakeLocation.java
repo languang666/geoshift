@@ -27,6 +27,35 @@ final class FakeLocation {
         return (z >>> 11) * 0x1.0p-53;
     }
 
+    /** Smooth, bounded noise with no repeating sine period; replayable for historical fixes. */
+    static double noise(double seconds, double period, long seed, long channel) {
+        double position = seconds / period;
+        long bucket = (long) Math.floor(position);
+        double f = position - bucket;
+        double blend = f * f * f * (f * (f * 6 - 15) + 10);
+        double a = unit(bucket ^ seed, channel) * 2 - 1;
+        double b = unit((bucket + 1) ^ seed, channel) * 2 - 1;
+        return a + (b - a) * blend;
+    }
+
+    private static double drift(double seconds, long seed, long channel) {
+        return 0.7 * noise(seconds, 17.3, seed, channel)
+                + 0.3 * noise(seconds, 53.1, seed, channel ^ 0xD6E8FEB86659FD93L);
+    }
+
+    /** Reuse a fix's monotonic timestamp so every delivery layer preserves a batch's history. */
+    static Location replace(JSONObject config, Object original) throws Exception {
+        String provider = original instanceof Location ? ((Location) original).getProvider() : null;
+        if (provider == null || provider.isEmpty() || "passive".equals(provider)) provider = "fused";
+        long at = SystemClock.elapsedRealtime();
+        if (original instanceof Location) {
+            long nanos = ((Location) original).getElapsedRealtimeNanos();
+            // A long-stale cached fix would make the fake one equally stale, and SDKs drop stale fixes.
+            if (nanos > 0 && at - nanos / 1_000_000L < 10 * 60_000L) at = Math.min(at, nanos / 1_000_000L);
+        }
+        return build(config, provider, at);
+    }
+
     static Location build(JSONObject config, String provider) throws Exception {
         return build(config, provider, SystemClock.elapsedRealtime());
     }
@@ -53,20 +82,19 @@ final class FakeLocation {
         }
         boolean network = "network".equals(provider);
         double t = now / 1000.0;
+        long seed = r.optLong("noiseSeed", 0);
         double base = Math.max(1, s.optDouble("accuracy", 5));
         // Network fixes come from cell / Wi-Fi databases and are much coarser than satellite fixes.
-        double accuracy = network ? Math.max(base * 4, 18) * (1 + 0.15 * wave(t, 4.1))
-                : base * (1 + 0.2 * wave(t, 1.3));
+        double accuracy = network ? Math.max(base * 4, 18) * (1 + 0.15 * drift(t, seed, 41))
+                : base * (1 + 0.2 * drift(t, seed, 13));
         // Same drift for every provider: apps that mix gps / network / fused fixes must see one point,
         // otherwise their dot hops between two positions.
         double drift = Math.min(3, base * 0.35);
-        double east = drift * wave(t, 0.7), north = drift * wave(t, 2.9);
+        double east = drift * drift(t, seed, 7), north = drift * drift(t, seed, 29);
         if (s.optBoolean("jitter")) {
-            // Up to 1 m extra, new each second but the same for every app and provider within it.
-            long second = now / 1000;
-            double angle = unit(second, 0x9E3779B97F4A7C15L) * 2 * Math.PI, d = unit(second, 0xC2B2AE3D27D4EB4FL);
-            east += d * Math.sin(angle);
-            north += d * Math.cos(angle);
+            // Correlated extra motion, at most 1 m radially, without one-second step changes.
+            east += noise(t, 3.7, seed, 71) / Math.sqrt(2);
+            north += noise(t, 4.9, seed, 97) / Math.sqrt(2);
         }
         double distance = Math.hypot(east, north);
         if (distance > 0) {
@@ -83,16 +111,16 @@ final class FakeLocation {
         l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos() - age * 1_000_000L);
         if (!network) {
             // Satellite-based fixes carry altitude and motion; network fixes do not.
-            l.setAltitude(s.optDouble("altitude", 0) + 1.5 * wave(t, 3.3));
+            l.setAltitude(s.optDouble("altitude", 0) + 1.5 * drift(t, seed, 33));
             double speed = routeSpeed >= 0 ? routeSpeed : r.optBoolean("paused") ? 0 : r.optDouble("speed", 0);
             boolean moving = speed > 0;
-            if (!moving) speed = 0.12 * (1 + wave(t, 5.2)); // A still receiver reports a few cm/s.
+            if (!moving) speed = 0.12 * (1 + drift(t, seed, 52)); // A still receiver reports a few cm/s.
             l.setSpeed((float) speed);
-            if ("gps".equals(provider)) l.setExtras(FakeEnvironment.gpsExtras(config));
+            if ("gps".equals(provider)) l.setExtras(FakeEnvironment.gpsExtras(config, now));
             if (moving) l.setBearing((float) (route != null ? routeBearing : r.optDouble("bearing", 0)));
             if (Build.VERSION.SDK_INT >= 26) {
                 l.setVerticalAccuracyMeters((float) (accuracy * 1.6));
-                l.setSpeedAccuracyMetersPerSecond((float) (0.4 + 0.2 * (1 + wave(t, 6.1))));
+                l.setSpeedAccuracyMetersPerSecond((float) (0.4 + 0.2 * (1 + drift(t, seed, 61))));
                 if (moving) l.setBearingAccuracyDegrees(10f);
             }
         }

@@ -1,8 +1,10 @@
 package android.location;
 import java.util.List;
 public final class LocationResult {
-    private final List<Location> fixes;
-    private LocationResult(List<Location> fixes){this.fixes=fixes;}
-    public static LocationResult create(List<Location> fixes){return new LocationResult(fixes);}
-    public Location getLastLocation(){return fixes.get(fixes.size()-1);}
+    private final List<Location> mLocations;
+    public static boolean failCreation;
+    private LocationResult(List<Location> fixes){this.mLocations=fixes;}
+    public static LocationResult create(List<Location> fixes){if(failCreation)throw new IllegalStateException("injected packet failure");return new LocationResult(fixes);}
+    public Location getLastLocation(){return mLocations.get(mLocations.size()-1);}
+    public List<Location> getLocations(){return mLocations;}
 }
