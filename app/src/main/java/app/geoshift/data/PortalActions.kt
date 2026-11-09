@@ -459,9 +459,11 @@ class PortalActions(context: Context) {
             requireOnline()
             return OpenGeocoder.search(query, near)
         }
-        return MapNetwork.search(c, query).optJSONArray("results").objects().map {
+        val places = MapNetwork.search(c, query).optJSONArray("results").objects().map {
             Place(it.optString("name"), it.optString("address"), LatLon.from(it))
         }
+        // AMap has almost no overseas places; try OpenStreetMap before reporting nothing found.
+        return places.ifEmpty { runCatching { OpenGeocoder.search(query, near) }.getOrDefault(emptyList()) }
     }
 
     fun reverseGeocode(p: LatLon): String {
@@ -470,7 +472,15 @@ class PortalActions(context: Context) {
             // Address text is optional; a busy public server should not raise an error on every tap.
             return runCatching { OpenGeocoder.reverse(p) }.getOrDefault("")
         }
-        return MapNetwork.reverse(c, p.lat, p.lon).optString("address")
+        // Address text is optional and looked up automatically as the position changes: never raise.
+        return try {
+            // AMap answers places it has no address for with an empty array ("[]").
+            MapNetwork.reverse(c, p.lat, p.lon).optString("address").takeUnless { it.isBlank() || it == "[]" }
+                ?: runCatching { OpenGeocoder.reverse(p) }.getOrDefault("")
+        } catch (e: MapNetwork.AmapException) {
+            // Overseas points (20011 / 20800) fall back to OpenStreetMap; other errors show no address.
+            if (e.outOfCoverage()) runCatching { OpenGeocoder.reverse(p) }.getOrDefault("") else ""
+        } catch (e: Exception) { "" }
     }
 
     private fun requireOnline() {

@@ -24,6 +24,8 @@ enum class RoadProfile(val id: String, val label: String) {
  * (better road data in China), otherwise the public OSRM servers of FOSSGIS (OpenStreetMap data).
  * Coordinates in and out are WGS-84.
  */
+private class AmapOutOfCoverage : Exception()
+
 class RoadRouter(private val context: Context) {
     val source: String get() = if (PortalStore.mapKey(context).isNotEmpty()) "高德" else "OpenStreetMap"
 
@@ -41,7 +43,11 @@ class RoadRouter(private val context: Context) {
         val amap = PortalStore.mapKey(context).isNotEmpty()
         val key = String.format(Locale.ROOT, "%s|%s|%.6f,%.6f|%.6f,%.6f", if (amap) "amap" else "osrm", profile.id, a.lat, a.lon, b.lat, b.lon)
         synchronized(cache) { cache[key]?.let { return it } }
-        val road = if (amap) amap(profile, a, b) else osrm(profile, a, b)
+        val road = if (amap) {
+            try { amap(profile, a, b) }
+            // Overseas sections: AMap refuses them (20011 / 20800); OpenStreetMap covers them.
+            catch (e: AmapOutOfCoverage) { osrm(profile, a, b) }
+        } else osrm(profile, a, b)
         // Join the tapped points to where the road begins and ends, so sections connect exactly.
         val path = ArrayList<LatLon>(road.size + 2)
         path.add(a)
@@ -62,6 +68,9 @@ class RoadRouter(private val context: Context) {
             MapNetwork.direction(context, profile.id, a.lat, a.lon, b.lat, b.lon).map { LatLon(it[0], it[1]) }
         } catch (e: PortalException) {
             throw e
+        } catch (e: MapNetwork.AmapException) {
+            if (e.outOfCoverage()) throw AmapOutOfCoverage()
+            throw PortalException(e.message ?: "高德路径规划失败。")
         } catch (e: Exception) {
             throw PortalException(e.message ?: "高德路径规划失败。")
         }

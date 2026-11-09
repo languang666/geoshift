@@ -475,7 +475,7 @@ const val PRIVACY = """我们重视您的隐私。
 
 · 位置、路线、预设、环境记录、设置和日志全部保存在本机应用私有存储，不会上传。
 · 地图按您的选择来自 OpenStreetMap、OpenFreeMap、高德地图或 Esri World Imagery，对应服务器可以看到您查看的地图区域。
-· 地点搜索、地址显示和沿道路路线：填写高德 Web 服务 Key 时使用 restapi.amap.com（发送关键词或坐标以及您的 Key）；未填写时使用 photon.komoot.io（搜索）、nominatim.openstreetmap.org（地址）和 routing.openstreetmap.de（道路路线），发送搜索关键词或坐标。
+· 地点搜索、地址显示和沿道路路线：填写高德 Web 服务 Key 时使用 restapi.amap.com（发送关键词或坐标以及您的 Key），高德不覆盖的海外地点及无结果的搜索改用下列公共服务；未填写时使用 photon.komoot.io（搜索）、nominatim.openstreetmap.org（地址）和 routing.openstreetmap.de（道路路线），发送搜索关键词或坐标。
 · 不包含任何第三方 SDK、广告或统计服务。
 · 未同意使用须知前不会加载在线地图，也不会启动模拟服务。"""
 
