@@ -78,7 +78,7 @@ final class FakeLocation {
             lon = route.lon;
             routeBearing = route.bearing;
             boolean moving = !r.optBoolean("paused") && !route.finished;
-            routeSpeed = moving ? r.optDouble("routeSpeed", 0) * RoutePlan.speedFactor(now / 1000.0) : 0;
+            routeSpeed = moving ? r.optDouble("routeSpeed", 0) * RoutePlan.speedFactor(now / 1000.0) * route.pace : 0;
         }
         boolean network = "network".equals(provider);
         double t = now / 1000.0;

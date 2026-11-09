@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SportsEsports
@@ -215,7 +216,7 @@ fun MapScreen(
     val waypoints = draft.toList()
     LaunchedEffect(waypoints, profile, editing) {
         roadError = null
-        if (!editing || profile == RoadProfile.STRAIGHT || waypoints.size < 2) {
+        if (!editing || !profile.road || waypoints.size < 2) {
             roadPath = null; roadBusy = false; return@LaunchedEffect
         }
         roadBusy = true
@@ -231,7 +232,7 @@ fun MapScreen(
         }
     }
     var tipDismissed by remember { mutableStateOf(PortalStore.mapTipDismissed(appContext)) }
-    val road = profile != RoadProfile.STRAIGHT && roadPath != null
+    val road = profile.road && roadPath != null
     val editRoute = if (road) roadPath!! else waypoints
     val editAnchors = if (road) waypoints else emptyList()
 
@@ -460,7 +461,8 @@ fun MapScreen(
                     length = routeLength(editRoute),
                     profile = profile,
                     roadStatus = when {
-                        profile == RoadProfile.STRAIGHT -> null
+                        profile == RoadProfile.FLY -> "点与点之间直线飞行，按飞行速度播放"
+                        !profile.road -> null
                         draft.size < 2 -> "点选途经点，路线会沿${router.source}道路连接"
                         roadBusy -> "正在沿道路规划…"
                         roadError != null -> roadError
@@ -473,8 +475,8 @@ fun MapScreen(
                     onSave = {
                         when {
                             draft.size < 2 -> vm.toast("请至少选择两个路线点")
-                            profile != RoadProfile.STRAIGHT && roadBusy -> vm.toast("道路还在规划，请稍候")
-                            profile != RoadProfile.STRAIGHT && roadPath == null -> vm.toast(roadError ?: "道路规划失败，可改用直线")
+                            profile.road && roadBusy -> vm.toast("道路还在规划，请稍候")
+                            profile.road && roadPath == null -> vm.toast(roadError ?: "道路规划失败，可改用直线")
                             else -> routeDialog = true
                         }
                     },
@@ -503,7 +505,7 @@ fun MapScreen(
                 else -> StatusCard(s, onToggle = {
                     if (r.enabled) vm.run("模拟定位已关闭") { stop() }
                     else vm.run("模拟定位已开启") { if (r.routeMode && r.route.size >= 2) startRoute() else startPoint() }
-                }, onPause = { vm.run(if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
+                }, onPause = { vm.run(if (r.routeFinished) "路线重新开始" else if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
                     onOpenSetup = onOpenSetup,
                     onCopyCoord = { vm.toast("虚拟坐标已复制到剪贴板") })
             }
@@ -538,9 +540,16 @@ fun MapScreen(
         val points = editRoute
         val via = waypoints
         val kind = profile
-        val title = if (kind == RoadProfile.STRAIGHT) "路线 ${via.size} 点" else "${kind.label}路线 ${formatDistance(routeLength(points))}"
+        val title = when {
+            kind == RoadProfile.STRAIGHT -> "路线 ${via.size} 点"
+            else -> "${kind.label}路线 ${formatDistance(routeLength(points))}"
+        }
         InputDialog("保存路线", initial = title, label = "名称",
-            hint = (if (kind == RoadProfile.STRAIGHT) "共 ${via.size} 个点" else "沿道路${kind.label} · ${via.size} 个途经点") + " · ${formatDistance(routeLength(points))}路线",
+            hint = (when {
+                kind == RoadProfile.FLY -> "飞行 · ${via.size} 个途经点"
+                !kind.road -> "共 ${via.size} 个点"
+                else -> "沿道路${kind.label} · ${via.size} 个途经点"
+            }) + " · ${formatDistance(routeLength(points))}路线",
             onDismiss = { routeDialog = false }) { name ->
             vm.run<String>("路线保存成功", onDone = { editing = false; draft.clear() }) { saveRoute(name, points, via, kind) }
         }
@@ -785,7 +794,8 @@ private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit
                     modifier = Modifier.size(48.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(if (r.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (r.paused) "继续" else "暂停")
+                        Icon(when { r.routeFinished -> Icons.Rounded.Replay; r.paused -> Icons.Rounded.PlayArrow; else -> Icons.Rounded.Pause },
+                            when { r.routeFinished -> "重新开始"; r.paused -> "继续"; else -> "暂停" })
                     }
                 }
                 Spacer(Modifier.width(10.dp))
@@ -881,7 +891,8 @@ private fun RouteEditorCard(
             }
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "退出编辑") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Five choices do not fit a narrow phone; let the row scroll instead of clipping.
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             RoadProfile.entries.forEach { p ->
                 FilterChip(selected = p == profile, onClick = { onProfile(p) }, label = { Text(p.label) })
             }

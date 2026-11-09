@@ -7,6 +7,79 @@ public final class RouteNmeaChecks {
     private static int checks;
     private static void check(boolean value, String why) { checks++; if (!value) throw new AssertionError(why); }
 
+    private static double gap(RoutePlan.Position a, RoutePlan.Position b) { return Geo.distance(a.lat, a.lon, b.lat, b.lon); }
+
+    /** Corners, start/end easing, repeat modes and anchor consistency. */
+    private static void routeProfileChecks() throws Exception {
+        // L-shaped: ~556 m north, then ~558 m east (a 90° turn), plus a duplicated point.
+        double[] lat = {30.0, 30.005, 30.005, 30.005}, lon = {120.0, 120.0, 120.0, 120.0058};
+        RoutePlan plan = new RoutePlan(RoutePlan.idOf(lat, lon), lat, lon);
+        double corner = plan.open.cumulative[1], L = plan.total;
+        check(plan.open.lat.length == 3, "duplicate point dropped");
+        double drive = 13.9, walk = 1.4;
+        RoutePlan.Track.Pace p = plan.open.pace(drive);
+        check(p.at(corner) < 0.8 && p.at(corner) > 0.3, "driving slows for a 90° corner " + p.at(corner));
+        check(p.at(corner / 2) == 1 && p.at(0) < 0.1 && p.at(L) < 0.1, "full speed between, slow at both ends");
+        RoutePlan.Track.Pace w = plan.open.pace(walk);
+        check(w.at(corner) == 1 && w.at(L / 2) == 1, "walking keeps its pace round a corner");
+        // Heading turns gradually through the corner rather than snapping.
+        double turning = plan.at(corner).bearing;
+        check(turning > 30 && turning < 60, "bearing blends at the corner " + turning);
+        check(Math.abs(plan.at(corner - 20).bearing) < 1 || Math.abs(plan.at(corner - 20).bearing - 360) < 1, "straight before the blend");
+        // Effort <-> distance round trip, all modes.
+        for (String mode : new String[]{RoutePlan.ONCE, RoutePlan.LOOP, RoutePlan.BOUNCE})
+            for (double d : new double[]{0.3, 10, corner, L - 1, L + 37, 2 * L + 400, 5 * L + 3}) {
+                if (RoutePlan.ONCE.equals(mode) && d > L) continue;
+                double back = plan.distanceOf(mode, drive, plan.effortOf(mode, drive, d));
+                check(Math.abs(back - d) < 1e-6, mode + " effort round trip " + d + " -> " + back);
+            }
+        // Re-anchoring part way gives the same position as one long run (app and system agree).
+        JSONObject a = new JSONObject().put("routeAnchorDist", 0.0).put("routeAnchorAt", 1_000L).put("routeSpeed", drive);
+        for (String mode : new String[]{RoutePlan.ONCE, RoutePlan.LOOP, RoutePlan.BOUNCE}) {
+            a.put("routeRepeat", mode).put("routeAnchorDist", 0.0).put("routeAnchorAt", 1_000L);
+            double direct = plan.distanceAt(a, 151_000);
+            double middle = plan.distanceAt(a, 63_000);
+            JSONObject b = new JSONObject().put("routeSpeed", drive).put("routeRepeat", mode).put("routeAnchorDist", middle).put("routeAnchorAt", 63_000L);
+            check(Math.abs(plan.distanceAt(b, 151_000) - direct) < 1e-6, mode + " re-anchor is seamless");
+        }
+        // Reported speed matches how fast the position actually moves, corners and ends included.
+        a.put("routeRepeat", RoutePlan.BOUNCE).put("routeAnchorDist", 0.0).put("routeAnchorAt", 0L);
+        for (long t = 500; t < 400_000; t += 1_700) {
+            double d0 = plan.distanceAt(a, t), d1 = plan.distanceAt(a, t + 50);
+            RoutePlan.Position pos = plan.at(RoutePlan.BOUNCE, drive, d0);
+            double reported = drive * RoutePlan.speedFactor(t / 1000.0) * pos.pace, actual = (d1 - d0) / 0.05;
+            check(Math.abs(reported - actual) < 0.03 * drive, "speed matches movement at " + t + ": " + reported + " vs " + actual);
+        }
+        // Played once, the whole route takes longer than at constant speed (easing) but not much.
+        a.put("routeRepeat", RoutePlan.ONCE);
+        long done = 0;
+        for (long t = 0; t < 1_000_000 && done == 0; t += 500) if (plan.at(RoutePlan.ONCE, drive, plan.distanceAt(a, t)).finished) done = t;
+        check(done > L / drive * 1000 && done < (L / drive + 40) * 1000, "once finishes in " + done + " ms");
+        // Loop: closes back to the start, wraps without a jump.
+        RoutePlan.Track loop = plan.track(RoutePlan.LOOP);
+        check(loop.length > L + 700 && loop.length < L + 850, "loop adds the closing section " + loop.length);
+        double lap = loop.length;
+        check(gap(plan.at(RoutePlan.LOOP, drive, lap - 0.05), plan.at(RoutePlan.LOOP, drive, lap + 0.05)) < 0.2, "loop seam is continuous");
+        check(Math.abs(plan.at(RoutePlan.LOOP, drive, lap * 3 + 5).along - 5) < 1e-6, "loop wraps by laps");
+        // Bounce: comes back reversed, facing the other way, and returns to the start.
+        RoutePlan.Position back = plan.at(RoutePlan.BOUNCE, drive, L + 100);
+        check(back.reversed && Math.abs(back.along - (L - 100)) < 1e-6, "bounce returns along the route");
+        double ahead = plan.at(RoutePlan.ONCE, drive, L - 100).bearing;
+        check(Math.abs(((back.bearing - ahead) % 360 + 540) % 360 - 180) > 170, "bounce faces back " + back.bearing + " vs " + ahead);
+        check(gap(plan.at(RoutePlan.BOUNCE, drive, 2 * L), plan.at(RoutePlan.ONCE, drive, 0)) < 0.01, "bounce reaches the start");
+        check(gap(plan.at(RoutePlan.BOUNCE, drive, L - 0.05), plan.at(RoutePlan.BOUNCE, drive, L + 0.05)) < 0.2, "bounce turnaround is continuous");
+        // Switching mode keeps the current point.
+        JSONObject run = new JSONObject().put("routeAnchorDist", L + 100).put("routeAnchorAt", 1_000L).put("routeSpeed", drive)
+                .put("paused", true).put("routeRepeat", RoutePlan.BOUNCE);
+        double toOnce = plan.reanchor(run, 1_000, RoutePlan.ONCE);
+        check(Math.abs(toOnce - (L - 100)) < 1e-6, "bounce -> once keeps the point");
+        run.put("routeRepeat", RoutePlan.ONCE).put("routeAnchorDist", L - 100);
+        check(Math.abs(plan.reanchor(run, 1_000, RoutePlan.BOUNCE) - (L - 100)) < 1e-6, "once -> bounce keeps the point");
+        run.put("routeRepeat", RoutePlan.LOOP).put("routeAnchorDist", L + 50);
+        check(Math.abs(plan.reanchor(run, 1_000, RoutePlan.ONCE) - L) < 1e-6, "loop closing section -> once ends at the finish");
+        check(RoutePlan.repeat(new JSONObject().put("routeRepeat", "bogus")).equals(RoutePlan.ONCE), "unknown repeat mode plays once");
+    }
+
     public static void main(String[] args) throws Exception {
         // Straight route north, about 1112 m long, three points.
         double[] lat = {30.0, 30.005, 30.01}, lon = {120.0, 120.0, 120.0};
@@ -34,9 +107,11 @@ public final class RouteNmeaChecks {
 
         // Anchors: paused keeps the distance; running moves from the anchor.
         JSONObject r = new JSONObject().put("routeAnchorDist", 100.0).put("routeAnchorAt", 10_000L).put("routeSpeed", 2.0);
-        check(RoutePlan.distanceAt(r, 20_000) > 100 + 10, "running moves");
+        check(plan.distanceAt(r, 20_000) > 100 + 10, "running moves");
         r.put("paused", true);
-        check(RoutePlan.distanceAt(r, 20_000) == 100, "paused stays");
+        check(plan.distanceAt(r, 20_000) == 100, "paused stays");
+
+        routeProfileChecks();
 
         // Live position only for the installed plan.
         JSONObject config = new JSONObject()
@@ -50,7 +125,12 @@ public final class RouteNmeaChecks {
         check(live != null && Math.abs(live.lat - 30.0) < 1e-6, "live at anchor (stub clock = anchor)");
         Location fake = FakeLocation.build(config, "gps");
         check(Math.abs(fake.getLatitude() - 30.0) < 1e-3 && Math.abs(fake.getLongitude() - 120.0) < 1e-3, "FakeLocation follows the route");
+        // At the start the route eases in from a slow walk.
+        check(fake.getSpeed() > 0.3 && fake.getSpeed() < 0.7, "route starts slowly " + fake.getSpeed());
+        config.getJSONObject("runtime").put("routeAnchorDist", plan.total / 2);
+        fake = FakeLocation.build(config, "gps");
         check(fake.getSpeed() > 1.0 && fake.getSpeed() < 1.8, "route speed with swing " + fake.getSpeed());
+        config.getJSONObject("runtime").put("routeAnchorDist", 0.0);
         config.getJSONObject("runtime").put("planId", "other");
         check(Math.abs(FakeLocation.build(config, "gps").getLatitude() - 1.0) < 1e-3, "other plan -> runtime position");
         config.getJSONObject("runtime").put("planId", plan.id);

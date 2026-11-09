@@ -29,6 +29,10 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material.icons.rounded.SatelliteAlt
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Stop
@@ -137,7 +141,7 @@ fun MockScreen(
                 if (r.enabled) vm.run("模拟定位已关闭") { stop() }
                 else vm.run("模拟定位已开启") { if (r.routeMode && r.route.size >= 2) startRoute() else startPoint() }
             },
-            onPause = { vm.run(if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
+            onPause = { vm.run(if (r.routeFinished) "路线重新开始" else if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
             onCopyCoord = { vm.toast("虚拟坐标已复制到剪贴板") },
         )
 
@@ -257,6 +261,7 @@ private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, on
             Spacer(Modifier.width(8.dp))
             Text(
                 when {
+                    on && r.routeFinished -> "路线已走完"
                     on && r.paused -> "路线已暂停"
                     on && r.routeMode -> "路线模拟中"
                     on -> "正在模拟位置"
@@ -299,7 +304,12 @@ private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, on
             Spacer(Modifier.size(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(r.routeName.ifEmpty { "未命名路线" }, style = MaterialTheme.typography.bodySmall, color = sub, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${(r.progress * 100).toInt()}% · 剩 ${formatDistance(remainingMetres)}（约 $etaStr）", style = MaterialTheme.typography.bodySmall, color = fg)
+                Text(when (r.routeRepeat) {
+                    "loop" -> "循环中 · ${(r.progress * 100).toInt()}%"
+                    "bounce" -> "往返中 · ${(r.progress * 100).toInt()}%"
+                    else -> if (r.routeFinished) "已到达终点"
+                        else "${(r.progress * 100).toInt()}% · 剩 ${formatDistance(remainingMetres)}（约 $etaStr）"
+                }, style = MaterialTheme.typography.bodySmall, color = fg)
             }
             Spacer(Modifier.size(6.dp))
             LinearProgressIndicator(progress = { r.progress.toFloat() }, modifier = Modifier.fillMaxWidth().clip(CircleShape),
@@ -321,8 +331,8 @@ private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, on
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.22f), contentColor = Color.White),
                     contentPadding = PaddingValues(vertical = 13.dp),
                 ) {
-                    Icon(if (r.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(6.dp)); Text(if (r.paused) "继续" else "暂停")
+                    Icon(when { r.routeFinished -> Icons.Rounded.Replay; r.paused -> Icons.Rounded.PlayArrow; else -> Icons.Rounded.Pause }, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(6.dp)); Text(when { r.routeFinished -> "重新开始"; r.paused -> "继续"; else -> "暂停" })
                 }
             }
             Button(
@@ -368,7 +378,22 @@ private fun RouteCard(s: PortalState, vm: PortalViewModel, onPickRoute: () -> Un
                 )
             }
         }
-        Text(String.format(Locale.ROOT, "约 %.1f km/h（倍率 ×%s），行进中速度自然波动 ±20%%",
+        Spacer(Modifier.size(8.dp))
+        Text("走到终点后", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.size(4.dp))
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            val repeats = listOf("once" to "停在终点", "loop" to "循环", "bounce" to "往返")
+            repeats.forEachIndexed { i, (key, label) ->
+                SegmentedButton(
+                    selected = r.routeRepeat == key,
+                    onClick = { if (r.routeRepeat != key) vm.run { setRouteRepeat(key) } },
+                    shape = SegmentedButtonDefaults.itemShape(i, repeats.size),
+                    label = { Text(label, maxLines = 1) },
+                )
+            }
+        }
+        Spacer(Modifier.size(6.dp))
+        Text(String.format(Locale.ROOT, "约 %.1f km/h（倍率 ×%s），速度自然波动 ±20%%，起步、转弯和到站时减速",
             s.settings.speedMode.metresPerSecond * s.settings.speedMultiplier * 3.6, formatNumber(s.settings.speedMultiplier)),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (!routeRunning) {

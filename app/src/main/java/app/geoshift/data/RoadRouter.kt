@@ -7,12 +7,14 @@ import app.geoshift.PortalStore
 import org.json.JSONObject
 import java.util.Locale
 
-/** How a route section between two tapped points is drawn. */
-enum class RoadProfile(val id: String, val label: String) {
-    STRAIGHT("straight", "直线"),
-    FOOT("foot", "步行"),
-    BIKE("bike", "骑行"),
-    CAR("car", "驾车");
+/** How a route section between two tapped points is drawn. [road]: snapped to real roads. */
+enum class RoadProfile(val id: String, val label: String, val road: Boolean) {
+    STRAIGHT("straight", "直线", false),
+    FOOT("foot", "步行", true),
+    BIKE("bike", "骑行", true),
+    CAR("car", "驾车", true),
+    /** Straight lines between the tapped points, played at flying speed. */
+    FLY("fly", "飞行", false);
 
     companion object {
         fun from(id: String?) = entries.firstOrNull { it.id == id } ?: STRAIGHT
@@ -37,7 +39,7 @@ class RoadRouter(private val context: Context) {
 
     /** Road path from a to b, starting at a and ending at b. Blocking; call off the main thread. */
     fun section(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
-        if (profile == RoadProfile.STRAIGHT) return listOf(a, b)
+        if (!profile.road) return listOf(a, b)
         if (!PortalStore.settings(context).optBoolean("privacyAccepted"))
             throw PortalException("沿道路规划需要联网，请先在设置中同意隐私说明。")
         val amap = PortalStore.mapKey(context).isNotEmpty()

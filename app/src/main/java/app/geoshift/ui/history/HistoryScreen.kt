@@ -136,8 +136,11 @@ fun HistoryScreen(
             HistoryRow("locations", it.id, it.name, it.address.ifEmpty { formatCoord(it.position.lat, it.position.lon) }, it.createdAt, Icons.Rounded.Place, it.position)
         }
         1 -> s.routes.map {
-            HistoryRow("routes", it.id, it.name, if (it.profile == RoadProfile.STRAIGHT) "${it.points.size} 个点位 · ${formatDistance(it.length)}路线"
-                else "沿道路${it.profile.label} · ${it.waypointCount} 个途经点 · ${formatDistance(it.length)}", it.createdAt, Icons.Rounded.Route, it.points.firstOrNull())
+            HistoryRow("routes", it.id, it.name, when {
+                it.profile == RoadProfile.FLY -> "飞行 · ${it.waypointCount} 个途经点 · ${formatDistance(it.length)}"
+                !it.profile.road -> "${it.points.size} 个点位 · ${formatDistance(it.length)}路线"
+                else -> "沿道路${it.profile.label} · ${it.waypointCount} 个途经点 · ${formatDistance(it.length)}"
+            }, it.createdAt, Icons.Rounded.Route, it.points.firstOrNull())
         }
         else -> s.environments.map {
             HistoryRow("environments", it.id, it.name, "基站 ${it.cellCount} · Wi-Fi ${it.wifiCount}${if (it.simulated) " · 采集时模拟开启" else ""}",

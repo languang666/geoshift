@@ -24,7 +24,7 @@ public final class PortalStore {
     /** Runtime keys handed to hooked target processes. The route is deliberately excluded. */
     static final String[] HOOK_RUNTIME_KEYS = {
             "enabled", "paused", "lat", "lon", "speed", "bearing", "mode", "noiseSeed",
-            "routeAnchorDist", "routeAnchorAt", "routeSpeed",
+            "routeAnchorDist", "routeAnchorAt", "routeSpeed", "routeRepeat",
             "wifiEnabled", "wifi", "cellEnabled", "cell", "cells"};
     static final String[] HOOK_SETTING_KEYS = {
             "backend", "privacyAccepted", "accuracy", "altitude", "jitter", "gnssEnabled", "satelliteCount", "interval",
@@ -279,6 +279,31 @@ public final class PortalStore {
         return new double[][]{routeLat, routeLon};
     }
 
+    /** Played once to the end and holding there. */
+    public static synchronized boolean routeFinished(Context c) {
+        loadRuntime(c);
+        return "route".equals(live.optString("mode")) && live.optBoolean("paused")
+                && live.optDouble("progress", 0) >= 0.999 && RoutePlan.ONCE.equals(RoutePlan.repeat(live));
+    }
+
+    /**
+     * Sets what happens at the end of the route (once / loop / bounce). While a route plays, the
+     * anchor moves to the current point so the position continues without a jump.
+     */
+    public static synchronized boolean setRouteRepeat(Context c, String mode) {
+        if (!RoutePlan.ONCE.equals(mode) && !RoutePlan.LOOP.equals(mode) && !RoutePlan.BOUNCE.equals(mode)) return false;
+        loadRuntime(c);
+        JSONObject patch = obj("routeRepeat", mode);
+        try {
+            if (live.optBoolean("enabled") && "route".equals(live.optString("mode")) && routeCoordinates(c)[0].length >= 2) {
+                long now = SystemClock.elapsedRealtime();
+                patch.put("routeAnchorDist", routePlan(c).reanchor(live, now, mode)).put("routeAnchorAt", now);
+            }
+        } catch (Exception ignored) {}
+        updateRuntime(c, patch);
+        return true;
+    }
+
     /** The current route as a playback plan (cached until the route changes). */
     public static synchronized RoutePlan routePlan(Context c) {
         routeCoordinates(c);
@@ -297,7 +322,7 @@ public final class PortalStore {
         long now = SystemClock.elapsedRealtime();
         boolean important = patch.has("enabled") || patch.has("paused") || patch.has("overlay")
                 || patch.has("wifiEnabled") || patch.has("cellEnabled") || patch.has("error")
-                || patch.has("route");
+                || patch.has("route") || patch.has("routeRepeat");
         if (now - lastRuntimeWrite > RUNTIME_PERSIST_MS || important) {
             JSONObject persisted = new JSONObject();
             try {

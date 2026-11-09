@@ -166,6 +166,7 @@ class PortalActions(context: Context) {
             RoadProfile.FOOT -> SpeedMode.WALK
             RoadProfile.BIKE -> SpeedMode.BIKE
             RoadProfile.CAR -> SpeedMode.DRIVE
+            RoadProfile.FLY -> SpeedMode.FLY
             RoadProfile.STRAIGHT -> null
         }
         if (speed != null && PortalStore.settings(c).optString("speedMode") != speed.key) {
@@ -185,7 +186,16 @@ class PortalActions(context: Context) {
         SimulationService.command(c, "START")
     }
 
-    fun pauseRoute(pause: Boolean) = SimulationService.command(c, if (pause) "PAUSE" else "RESUME")
+    fun pauseRoute(pause: Boolean) {
+        // At the end "continue" would stop again at once: play the route again from the start.
+        SimulationService.command(c, if (pause) "PAUSE" else if (PortalStore.routeFinished(c)) "START" else "RESUME")
+    }
+
+    /** once / loop / bounce. While playing, the route continues from where it is now. */
+    fun setRouteRepeat(mode: String) {
+        if (!PortalStore.setRouteRepeat(c, mode)) fail("重复方式无效。")
+        SimulationService.command(c, "UPDATE")
+    }
 
     fun overlay(enabled: Boolean) {
         if (enabled) {
@@ -210,12 +220,15 @@ class PortalActions(context: Context) {
 
     /** points are what playback follows; waypoints and profile record how a road route was drawn. */
     fun saveRoute(name: String, points: List<LatLon>, waypoints: List<LatLon> = points, profile: RoadProfile = RoadProfile.STRAIGHT): String {
-        val array = JSONArray().apply { points.forEach { put(it.toJson()) } }
+        // Long road routes can exceed the point limit; drop points that do not change the shape.
+        val kept = simplifyRoute(points, MAX_ROUTE_POINTS)
+        if (kept.size < points.size) PortalStore.log(c, "路线点较多，已精简为 ${kept.size} 个点（与原路线最大偏差 ${"%.1f".format(routeSimplifyTolerance(points, kept))} 米）")
+        val array = JSONArray().apply { kept.forEach { put(it.toJson()) } }
         validateRoute(array)
         val route = PortalStore.obj("name", name, "points", array)
         if (profile != RoadProfile.STRAIGHT) {
             route.put("profile", profile.id)
-            route.put("waypoints", JSONArray().apply { waypoints.forEach { put(it.toJson()) } })
+            if (profile.road) route.put("waypoints", JSONArray().apply { waypoints.forEach { put(it.toJson()) } })
         }
         return saveRecord("routes", route)
     }
@@ -591,7 +604,7 @@ class PortalActions(context: Context) {
         }
 
         fun validateRoute(points: JSONArray?) {
-            if (points == null || points.length() < 2 || points.length() > 10000) fail("路线需要 2–10,000 个点。")
+            if (points == null || points.length() < 2 || points.length() > MAX_ROUTE_POINTS) fail("路线需要 2–10,000 个点。")
             for (p in points.objects()) checkCoordinate(LatLon.from(p))
         }
 

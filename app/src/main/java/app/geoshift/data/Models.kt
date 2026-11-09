@@ -134,8 +134,12 @@ data class RuntimeState(
     val cell: JSONObject,
     val cellCount: Int,
     val environmentName: String,
+    /** What happens at the end of a route: "once" (stop), "loop" or "bounce" (back and forth). */
+    val routeRepeat: String = "once",
 ) {
     val routeMode get() = mode == "route"
+    /** Played to the end and holding there; "continue" means start again from the beginning. */
+    val routeFinished get() = routeMode && paused && routeRepeat == "once" && progress >= 0.999
 
     companion object {
         fun from(o: JSONObject, keepRoute: List<LatLon>?) = RuntimeState(
@@ -157,6 +161,7 @@ data class RuntimeState(
             cell = o.optJSONObject("cell") ?: JSONObject(),
             cellCount = o.optJSONArray("cells")?.length() ?: 0,
             environmentName = o.optString("environmentName"),
+            routeRepeat = o.optString("routeRepeat", "once").ifEmpty { "once" },
         )
     }
 }
@@ -205,7 +210,7 @@ data class SavedRoute(val id: String, val name: String, val points: List<LatLon>
             val points = o.optJSONArray("points").objects().map(LatLon::from)
             val profile = RoadProfile.from(o.optString("profile"))
             return SavedRoute(o.optString("id"), o.optString("name"), points, o.optLong("createdAt"), profile,
-                if (profile == RoadProfile.STRAIGHT) points.size else o.optJSONArray("waypoints")?.length() ?: points.size)
+                if (!profile.road) points.size else o.optJSONArray("waypoints")?.length() ?: points.size)
         }
     }
 }
