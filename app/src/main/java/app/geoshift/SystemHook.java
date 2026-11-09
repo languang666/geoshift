@@ -60,6 +60,13 @@ final class SystemHook {
     /** Last real fix per provider, for apps outside the chosen list in "selected" mode. */
     private static final Map<String, Location> lastReal = new ConcurrentHashMap<>();
     private static volatile long lastInjectAt;
+    /**
+     * After simulation stops, provider caches still hold the last simulated fix until a real one
+     * arrives. While this is set, cached fixes near the last simulated point are not handed out.
+     */
+    private static final Set<String> staleProviders = ConcurrentHashMap.newKeySet();
+    private static volatile boolean pumpWasActive;
+    private static volatile double lastFakeLat = Double.NaN, lastFakeLon = Double.NaN;
 
     private static int ownUid = -1;
     private static final Set<Object> managers = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<Object, Boolean>()));
@@ -346,6 +353,20 @@ final class SystemHook {
         schedule(since >= 200 ? 30 : 200 - since);
     }
 
+    /**
+     * Stores the newest fix of a real LocationResult report. A chosen Play services app computes
+     * fused / network fixes from simulated input; those must not become the "real" fix.
+     */
+    private static void rememberReal(String provider, Object report) {
+        try {
+            Object last = XposedHelpers.callMethod(report, "getLastLocation");
+            if (!(last instanceof Location)) return;
+            JSONObject c = locationActive();
+            if (c != null && nearSimulated(c, (Location) last)) return;
+            lastReal.put(provider, new Location((Location) last));
+        } catch (Throwable ignored) {}
+    }
+
     /** Last real fix of a provider, for apps the simulation does not cover. */
     static Location realFix(String provider) {
         Location l = lastReal.get(provider == null ? "gps" : provider);
@@ -374,6 +395,22 @@ final class SystemHook {
         } catch (Exception e) { return false; }
     }
 
+    /** True when a provider's cached fix is (close to) the last simulated point while simulation is off. */
+    private static boolean staleSimulated(Object l, String provider) {
+        if (!(l instanceof Location) || Double.isNaN(lastFakeLat)) return false;
+        if (!staleProviders.contains(provider == null ? "" : provider)) return false;
+        Location x = (Location) l;
+        return Geo.distance(lastFakeLat, lastFakeLon, x.getLatitude(), x.getLongitude()) < 500;
+    }
+
+    /** Real fix (or none) instead of a cached simulated one, once simulation has stopped. */
+    private static Location afterStop(Location cached, String provider) {
+        // Only the same provider's own real fix: a GPS fix must not answer a network query.
+        Location real = lastReal.get(provider == null ? "gps" : provider);
+        if (real == null || Geo.distance(lastFakeLat, lastFakeLon, real.getLatitude(), real.getLongitude()) < 500) return null;
+        return new Location(real);
+    }
+
     // ---- Location injection (Android 12+) -----------------------------------------------------
 
     private static void hookProviderManagers(ClassLoader loader) {
@@ -388,24 +425,25 @@ final class SystemHook {
             @Override protected void beforeHookedMethod(MethodHookParam h) {
                 managers.add(h.thisObject);
                 if (INJECTING.get()) return; // Our own pump: already the simulated fix.
+                if (h.args.length == 0 || h.args[0] == null) return;
                 JSONObject c = locationActive();
-                if (c == null || h.args.length == 0 || h.args[0] == null) return;
                 String name = nameOf(h.thisObject);
-                if (!INJECT_PROVIDERS.contains(name) && !"passive".equals(name)) return;
-                if (AppScope.selectedOnly(c)) {
-                    // Real fixes keep flowing for the apps not chosen; each delivery decides per app.
-                    if (INJECT_PROVIDERS.contains(name)) {
-                        try {
-                            Object last = XposedHelpers.callMethod(h.args[0], "getLastLocation");
-                            // A chosen Play services app computes fused / network fixes from simulated
-                            // input; those must not become the "real" fix uncovered apps get.
-                            if (last instanceof Location && !nearSimulated(c, (Location) last))
-                                lastReal.put(name, new Location((Location) last));
-                        } catch (Throwable ignored) {}
+                if (c == null) {
+                    // A real fix after stopping: the provider cache is real again from here on.
+                    if (INJECT_PROVIDERS.contains(name) && staleProviders.remove(name)) {
+                        rememberReal(name, h.args[0]);
+                        staleProviders.remove("passive"); // The passive cache follows any real report.
                     }
                     return;
                 }
+                if (!INJECT_PROVIDERS.contains(name) && !"passive".equals(name)) return;
+                if (AppScope.selectedOnly(c)) {
+                    // Real fixes keep flowing for the apps not chosen; each delivery decides per app.
+                    if (INJECT_PROVIDERS.contains(name)) rememberReal(name, h.args[0]);
+                    return;
+                }
                 if (INJECT_PROVIDERS.contains(name)) {
+                    rememberReal(name, h.args[0]); // For the moment simulation stops.
                     // Drop real reports while simulating; the pump delivers the simulated fix at the set
                     // interval. Replacing them instead loops: a fused provider listening passively sees
                     // the replaced fix as new input and reports again, hundreds of times a second.
@@ -425,12 +463,16 @@ final class SystemHook {
         for (Method method : DeliveryTargets.reports(lpm)) { XposedBridge.hookMethod(method, reportHook); reportHooks++; }
         XC_MethodHook last = new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam h) {
-                JSONObject c = locationActive();
-                if (c == null || h.hasThrowable()) return;
+                if (h.hasThrowable()) return;
                 if (!(h.method instanceof java.lang.reflect.Method)
                         || ((java.lang.reflect.Method) h.method).getReturnType() != Location.class) return;
                 String name = nameOf(h.thisObject);
                 if (!INJECT_PROVIDERS.contains(name) && !"passive".equals(name)) return;
+                JSONObject c = locationActive();
+                if (c == null) {
+                    if (staleSimulated(h.getResult(), name)) h.setResult(afterStop((Location) h.getResult(), providerFor(name)));
+                    return;
+                }
                 if (AppScope.selectedOnly(c) && !AppScope.covers(c, identityUid(h.args))) {
                     // Not chosen: the real last fix, never a simulated one left in the provider cache.
                     Object result = h.getResult();
@@ -466,8 +508,16 @@ final class SystemHook {
         for (Method method : methods) {
                 XposedBridge.hookMethod(method, new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam h) {
+                        if (h.args.length == 0 || h.args[0] == null) return;
                         JSONObject c = locationActive();
-                        if (c == null || h.args[0] == null) return;
+                        if (c == null) {
+                            // Stopped: a cached simulated fix replayed to a new listener is dropped.
+                            if (!staleProviders.isEmpty()) try {
+                                Object last = XposedHelpers.callMethod(h.args[0], "getLastLocation");
+                                if (last instanceof Location && staleSimulated(last, ((Location) last).getProvider())) h.setResult(null);
+                            } catch (Throwable ignored) {}
+                            return;
+                        }
                         if (AppScope.selectedOnly(c) && !AppScope.covers(c, registrationUid(h.thisObject))) {
                             // Not chosen: drop the pump's simulated fixes, and a simulated fix replayed
                             // from the provider cache on registration; real ones go through.
@@ -568,7 +618,22 @@ final class SystemHook {
     private static void injectAll() {
         lastInjectAt = SystemClock.elapsedRealtime();
         JSONObject c = locationActive();
-        if (c == null) return; // Lease expired or simulation off: stop until the next SET.
+        if (c == null) {
+            // Lease expired or simulation off: stop until the next SET; caches still hold the fake.
+            if (pumpWasActive) {
+                pumpWasActive = false;
+                staleProviders.addAll(INJECT_PROVIDERS);
+                staleProviders.add("passive");
+            }
+            return;
+        }
+        pumpWasActive = true;
+        staleProviders.clear();
+        try {
+            Location point = FakeLocation.build(c, "gps");
+            lastFakeLat = point.getLatitude();
+            lastFakeLon = point.getLongitude();
+        } catch (Exception ignored) {}
         // Providers can exist before our constructor hook is installed. Discover them from the
         // live service rather than waiting for an unrelated real fix to happen first.
         Object service = locationService.get();

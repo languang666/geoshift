@@ -63,6 +63,8 @@ public final class PortalStore {
     }
 
     private static volatile boolean stateMigrated;
+    /** Whether Geoshift's own screen is showing; the service clock slows down while it is not. */
+    public static volatile boolean uiVisible;
 
     private static boolean isStateKey(String key) {
         return key.equals("runtime") || key.equals("featureStatus") || key.equals("hookSeenAt")

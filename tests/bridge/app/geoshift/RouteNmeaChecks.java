@@ -92,6 +92,15 @@ public final class RouteNmeaChecks {
         config.getJSONObject("settings").put("jitter", true);
         Location j1 = FakeLocation.build(config, "gps"), j2 = FakeLocation.build(config, "fused");
         check(j1.getLatitude() == j2.getLatitude() && j1.getLongitude() == j2.getLongitude(), "jitter shared across providers");
+        // A past moment (batched delivery): earlier route position and timestamps, same drift rules.
+        config.getJSONObject("settings").put("jitter", false);
+        config.getJSONObject("runtime").put("routeAnchorAt", 100000L).put("routeSpeed", 1.4);
+        Location nowFix = FakeLocation.build(config, "gps", 123456L), earlier = FakeLocation.build(config, "gps", 113456L);
+        check(Math.abs(nowFix.getTime() - earlier.getTime() - 10000) <= 50, "past fix time " + (nowFix.getTime() - earlier.getTime()));
+        check(nowFix.getElapsedRealtimeNanos() - earlier.getElapsedRealtimeNanos() == 10_000_000_000L, "past fix clock");
+        double moved = app.geoshift.Geo.distance(earlier.getLatitude(), earlier.getLongitude(), nowFix.getLatitude(), nowFix.getLongitude());
+        check(moved > 8 && moved < 25, "route moved between the two moments " + moved);
+        check(FakeLocation.build(config, "gps", 999999999L).getElapsedRealtimeNanos() == nowFix.getElapsedRealtimeNanos(), "future moment clamps to now");
         System.out.println("PASS: " + checks + " route playback / NMEA checks.");
     }
 

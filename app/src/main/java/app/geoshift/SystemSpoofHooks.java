@@ -321,8 +321,14 @@ final class SystemSpoofHooks {
     private static Location fake(JSONObject config, Object original) {
         String provider = original instanceof Location ? ((Location) original).getProvider() : null;
         if (provider == null || provider.isEmpty() || "passive".equals(provider)) provider = "fused";
+        // Keep the moment of the original fix (batched deliveries hold several past fixes).
+        long at = android.os.SystemClock.elapsedRealtime();
+        if (original instanceof Location) {
+            long nanos = ((Location) original).getElapsedRealtimeNanos();
+            if (nanos > 0 && at - nanos / 1_000_000L < 10 * 60_000L) at = Math.min(at, nanos / 1_000_000L);
+        }
         try {
-            return FakeLocation.build(config, provider);
+            return FakeLocation.build(config, provider, at);
         } catch (Exception e) {
             // LSPosed logs hook exceptions and then runs the original call.
             throw new IllegalStateException("Geoshift fake location", e);

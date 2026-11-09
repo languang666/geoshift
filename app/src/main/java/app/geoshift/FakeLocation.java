@@ -28,10 +28,20 @@ final class FakeLocation {
     }
 
     static Location build(JSONObject config, String provider) throws Exception {
+        return build(config, provider, SystemClock.elapsedRealtime());
+    }
+
+    /**
+     * The simulated fix as it was at clock reading [atMs] (SystemClock.elapsedRealtime). Batched
+     * deliveries carry several past fixes; each gets the position and timestamps of its own moment.
+     */
+    static Location build(JSONObject config, String provider, long atMs) throws Exception {
         JSONObject r = config.getJSONObject("runtime"), s = config.getJSONObject("settings");
         double lat = r.getDouble("lat"), lon = r.getDouble("lon");
         double routeSpeed = -1, routeBearing = 0;
-        long now = SystemClock.elapsedRealtime();
+        long clock = SystemClock.elapsedRealtime();
+        long now = atMs > clock || atMs <= 0 ? clock : atMs;
+        long age = clock - now;
         // A route keeps moving here even while the app sleeps (see RoutePlan).
         RoutePlan.Position route = RoutePlan.live(config, now);
         if (route != null) {
@@ -68,9 +78,9 @@ final class FakeLocation {
         l.setLatitude(lat);
         l.setLongitude(lon);
         l.setAccuracy((float) accuracy);
-        l.setTime(System.currentTimeMillis());
-        // Must be "now": the framework drops fixes older than the last delivered one.
-        l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+        l.setTime(System.currentTimeMillis() - age);
+        // "Now" for live fixes: the framework drops fixes older than the last delivered one.
+        l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos() - age * 1_000_000L);
         if (!network) {
             // Satellite-based fixes carry altitude and motion; network fixes do not.
             l.setAltitude(s.optDouble("altitude", 0) + 1.5 * wave(t, 3.3));

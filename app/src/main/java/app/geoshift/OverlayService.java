@@ -33,6 +33,8 @@ public final class OverlayService extends Service {
     private Stick stick;
     /** Joystick deflection, each in [-1, 1]; (0, 0) is idle. */
     private float dx, dy;
+    /** Whether the last step moved; releasing the stick then reports standing still once. */
+    private boolean moving;
 
     public static void command(Context c, boolean enabled) {
         Intent i = new Intent(c, OverlayService.class);
@@ -104,8 +106,15 @@ public final class OverlayService extends Service {
                 double heading = Geo.normalizeBearing(Math.toDegrees(Math.atan2(dx, -dy)));
                 double metres = PortalStore.speed(s) * Math.min(1, length) * STEP_MS / 1000.0;
                 double[] p = Geo.move(r.optDouble("lat"), r.optDouble("lon"), metres, heading);
-                PortalStore.updateRuntime(this, PortalStore.obj("lat", p[0], "lon", p[1], "bearing", heading));
+                // Report the speed actually travelled, so speed, heading and position change agree.
+                PortalStore.updateRuntime(this, PortalStore.obj("lat", p[0], "lon", p[1], "bearing", heading,
+                        "speed", metres * 1000.0 / STEP_MS));
                 if (r.optBoolean("enabled")) SimulationService.command(this, "UPDATE");
+                moving = true;
+            } else if (moving) {
+                moving = false;
+                PortalStore.updateRuntime(this, PortalStore.obj("speed", 0));
+                if (PortalStore.runtimeFields(this, "enabled").optBoolean("enabled")) SimulationService.command(this, "UPDATE");
             }
         } catch (Exception e) {
             PortalStore.log(this, "摇杆：" + e.getMessage());

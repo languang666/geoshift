@@ -208,9 +208,12 @@ public final class SimulationService extends Service {
             }
             int interval = Math.max(100, Math.min(60000, s.optInt("interval", 1000)));
             if ("lsposed".equals(s.optString("backend"))) {
-                // The system hook injects on its own clock; push only changes plus a slow heartbeat.
+                // The system hook injects and plays routes on its own clock; this tick only keeps the
+                // app's own view current and sends changes plus a slow heartbeat. Nobody looks at that
+                // view while Geoshift is in the background, so wake up rarely then.
                 PortalStore.heartbeatToSystem(this);
-                clock.postDelayed(ticker, Math.min(interval, 5000));
+                boolean watched = PortalStore.uiVisible || r.optBoolean("overlay");
+                clock.postDelayed(ticker, watched ? Math.min(interval, 5000) : 10_000);
             } else if (route || s.optBoolean("enhanced", true) || r.optBoolean("paused")) {
                 clock.postDelayed(ticker, interval);
             }

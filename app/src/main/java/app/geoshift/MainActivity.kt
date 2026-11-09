@@ -68,11 +68,15 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.foreground = true
+        app.geoshift.PortalStore.uiVisible = true
+        // The service clock was slow in the background; bring the position up to date now.
+        SimulationService.command(this, "UPDATE")
         vm.refresh()
     }
 
     override fun onPause() {
         vm.foreground = false
+        app.geoshift.PortalStore.uiVisible = false
         super.onPause()
     }
 
