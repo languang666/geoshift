@@ -505,6 +505,32 @@ class PortalActions(context: Context) {
         return "Web 服务 Key 验证通过，地址查询可用"
     }
 
+    /**
+     * Advisory check (manual trigger only): looks up the public exit IP's location and compares it
+     * with the simulated point. The module cannot forge the IP; a large gap means apps that cross-check
+     * IP geolocation (e.g. DingTalk) can still tell, and the user needs a proxy/VPN in the target region.
+     */
+    fun checkExitIp(): String {
+        requireOnline()
+        val r = app.geoshift.IpLocation.lookup(c)
+        val where = buildString {
+            append("出口 IP")
+            if (r.ip.isNotEmpty()) append(" ").append(r.ip)
+            append(" 定位：").append(if (r.place.isNotEmpty()) r.place else "未知")
+            append("（").append(r.source).append("）")
+        }
+        val run = PortalStore.runtimeFields(c, "enabled", "lat", "lon")
+        if (!run.optBoolean("enabled")) return "$where。当前未在模拟，仅供参考。"
+        if (!r.hasCoord) return "$where。无法取得 IP 坐标，请自行判断是否与模拟点一致。"
+        val km = app.geoshift.Geo.distance(run.optDouble("lat"), run.optDouble("lon"), r.lat, r.lon) / 1000.0
+        val d = String.format(java.util.Locale.ROOT, "%,.0f", km)
+        return when {
+            km < 50 -> "$where。距模拟点约 $d km，基本一致。"
+            km < 300 -> "$where。距模拟点约 $d km，偏差较大（约省级范围）。"
+            else -> "$where。距模拟点约 $d km，明显不一致：钉钉等可据 IP 识别，请改用对应地区的代理/VPN。"
+        }
+    }
+
     // ---- Backup -------------------------------------------------------------------------------
 
     fun exportTo(uri: Uri) {

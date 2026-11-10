@@ -125,7 +125,7 @@ final class WifiPrivacyHooks {
 
     private void installClass(Class<?> type) {
         if (!installed.add(type)) return;
-        int scans = XposedBridge.hookAllMethods(type, "getScanResults", new XC_MethodHook() {
+        int scans = HookUtil.deoptimizeN(XposedBridge.hookAllMethods(type, "getScanResults", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam h) {
                 org.json.JSONObject c = controller.activeFor(Binder.getCallingUid());
                 if (c == null || h.hasThrowable() || h.getResult() == null) return;
@@ -140,8 +140,8 @@ final class WifiPrivacyHooks {
                     controller.report(e, "error", "扫描替换失败，已阻止返回真实结果");
                 }
             }
-        }).size();
-        XposedBridge.hookAllMethods(type, "getConnectionInfo", new XC_MethodHook() {
+        }));
+        HookUtil.deoptimize(XposedBridge.hookAllMethods(type, "getConnectionInfo", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam h) {
                 org.json.JSONObject c = controller.activeFor(Binder.getCallingUid());
                 if (c == null || h.hasThrowable() || h.getResult() == null) return;
@@ -156,7 +156,7 @@ final class WifiPrivacyHooks {
                     controller.report(e, "error", "连接信息替换失败，已阻止返回真实结果");
                 }
             }
-        });
+        }));
         if (scans > 0) {
             wifiInstalled = true;
             stopWatchingClassLoads();

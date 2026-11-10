@@ -217,7 +217,27 @@ fun MockScreen(
 
         if (s.settings.lsposed) {
             SectionTitle("系统诊断")
-            Diagnostics(s, diagnostics, onToggle = { diagnostics = !diagnostics }, onOpenSetup = onOpenSetup)
+            // Sensors are delivered inside each app's own process, so Geoshift (system-side, no app
+            // injection) cannot forge them. Warn when the simulated speed is clearly non-walking: a
+            // stationary phone's accelerometer/step count then contradicts the moving location.
+            if (s.runtime.enabled && s.runtime.speed >= 2.3) {
+                Spacer(Modifier.size(12.dp))
+                Row(
+                    Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(Warning.copy(alpha = 0.12f)).padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.WarningAmber, null, tint = Warning)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("速度与传感器可能不一致", style = MaterialTheme.typography.titleSmall)
+                        Text("当前模拟约 ${"%.0f".format(s.runtime.speed * 3.6)} km/h。若手机此刻静止，运动 / 考勤类应用可能用加速度计或计步核对出与定位不符——本工具不伪造传感器。改用静止模拟或让手机实际移动可避免。",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Diagnostics(s, diagnostics, onToggle = { diagnostics = !diagnostics }, onOpenSetup = onOpenSetup,
+                onCheckIp = { vm.run<String>(onDone = vm::toast) { checkExitIp() } })
         }
     }
 
@@ -412,7 +432,7 @@ private val DIAGNOSTICS = listOf(
 
 /** One status line per system entry; folded to a summary by default. */
 @Composable
-private fun Diagnostics(s: PortalState, expanded: Boolean, onToggle: () -> Unit, onOpenSetup: () -> Unit) {
+private fun Diagnostics(s: PortalState, expanded: Boolean, onToggle: () -> Unit, onOpenSetup: () -> Unit, onCheckIp: () -> Unit) {
     val rows = DIAGNOSTICS.map { (key, title) ->
         val report = s.featureStatus[key]
         val status = when {
@@ -461,6 +481,9 @@ private fun Diagnostics(s: PortalState, expanded: Boolean, onToggle: () -> Unit,
                             })
                     }
                 }
+                RowDivider()
+                SettingRow("出口 IP 校验", "手动检查公网 IP 定位是否与模拟点一致（IP 无法在模块内伪装，差异大时需代理/VPN）",
+                    value = "检查", onClick = onCheckIp)
                 RowDivider()
                 SettingRow("检查权限与模块", "作用域勾选系统框架、电话服务和蓝牙后重启", onClick = onOpenSetup)
             }

@@ -9,6 +9,10 @@
 
 ## 当前记录
 
+- [2026-11-11：传感器交叉校验——已知局限 + 速度提醒（不伪造）](reviews/2026-11-11-sensor-consistency.md)
+- [2026-11-11：出口 IP 校验（提示性，非伪装）](reviews/2026-11-11-exit-ip-check.md)
+- [2026-11-11：系统进程内 getter 的反内联加固（deoptimize）](reviews/2026-11-11-anti-inline-deoptimize.md)
+- [2026-11-11：检测方对照（达达骑士 / 钉钉 + 两款开源模块）](references/detection-review-2026-11-11.md)
 - [2026-11-09：UI 与交互优化（罗盘指南针、路线规划、参数滑块与预设、多选批量管理、触觉与动效）](reviews/2026-11-09-ui-interaction-review.md)
 - [2026-11-09：定位与隐私优化](reviews/2026-11-09-location-privacy.md)
 - [PortalDev 2.0.6：安装包静态对照](references/portaldev-2.0.6-static-review.md)

@@ -417,7 +417,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
             }
         };
         for (String name : new String[]{"getLastKnownLocation", "getLastLocation"})
-            XposedBridge.hookAllMethods(LocationManager.class, name, lastLocation);
+            HookUtil.deoptimize(XposedBridge.hookAllMethods(LocationManager.class, name, lastLocation));
 
         if (Build.VERSION.SDK_INT >= 30) {
             XposedBridge.hookAllMethods(LocationManager.class, "getCurrentLocation", new XC_MethodHook() {
@@ -470,18 +470,18 @@ public final class PortalHook implements IXposedHookLoadPackage {
             }
         };
         for (String name : new String[]{"getSSID", "getBSSID"})
-            XposedBridge.hookAllMethods(WifiInfo.class, name, wifi);
+            HookUtil.deoptimize(XposedBridge.hookAllMethods(WifiInfo.class, name, wifi));
 
-        XposedBridge.hookAllMethods(WifiInfo.class, "getBSSID", new XC_MethodHook() {
+        HookUtil.deoptimize(XposedBridge.hookAllMethods(WifiInfo.class, "getBSSID", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam h) {
                 if (!h.hasThrowable() && active("environment") != null) h.setResult("02:00:00:00:00:00");
             }
-        });
-        XposedBridge.hookAllMethods(android.net.wifi.WifiManager.class, "getScanResults", new XC_MethodHook() {
+        }));
+        HookUtil.deoptimize(XposedBridge.hookAllMethods(android.net.wifi.WifiManager.class, "getScanResults", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam h) {
                 if (!h.hasThrowable() && active("environment") != null) h.setResult(Collections.emptyList());
             }
-        });
+        }));
 
         if (Build.VERSION.SDK_INT >= 31) {
             XposedBridge.hookAllMethods(TelephonyManager.class, "registerTelephonyCallback", new XC_MethodHook() {
@@ -491,7 +491,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
             });
         }
 
-        XposedBridge.hookAllMethods(TelephonyManager.class, "getAllCellInfo", new XC_MethodHook() {
+        HookUtil.deoptimize(XposedBridge.hookAllMethods(TelephonyManager.class, "getAllCellInfo", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam h) {
                 JSONObject c = active("cell");
                 if (c == null) {
@@ -506,7 +506,7 @@ public final class PortalHook implements IXposedHookLoadPackage {
                     report("cell", e);
                 }
             }
-        });
+        }));
 
         XC_MethodHook cellRegistration = new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam h) {
