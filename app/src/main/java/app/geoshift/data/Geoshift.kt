@@ -70,7 +70,6 @@ class Geoshift private constructor(context: Context) {
     /** Whether Geoshift's own screen is showing; the service clock slows down while it is not. */
     @Volatile var uiVisible = false
 
-    private val boot by lazy { bridge.bootCount() }
     private val plans = HashMap<String, RoutePlan>()
 
     init {
@@ -93,13 +92,13 @@ class Geoshift private constructor(context: Context) {
 
     /** What the hooks get: nothing unless the Xposed backend is chosen. */
     fun simConfig(s: Settings, r: Runtime): SimConfig =
-        if (!s.xposed || !s.privacyAccepted) SimConfig(boot = boot) else localConfig(s, r)
+        if (!s.xposed || !s.privacyAccepted) SimConfig(bootAt = bridge.bootAt()) else localConfig(s, r)
 
     /** The simulation as a config, whichever backend plays it. */
     fun localConfig(s: Settings, r: Runtime): SimConfig {
         val route = r.anchor.takeIf { r.enabled && r.routeMode }
         return SimConfig(
-            boot = boot, active = r.enabled, paused = r.paused, position = r.position,
+            bootAt = bridge.bootAt(), active = r.enabled, paused = r.paused, position = r.position,
             speed = if (route == null) r.speed else 0.0, bearing = r.bearing, route = route, noiseSeed = r.noiseSeed,
             accuracy = s.accuracy, altitude = s.altitude, jitter = s.jitter, interval = s.interval,
             hideEnvironment = s.hideEnvironment, gnss = s.gnss, satellites = s.satellites,

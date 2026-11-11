@@ -54,7 +54,6 @@ object Sim {
     @Volatile private var effective: SimConfig = SimConfig.OFF
     @Volatile var plan: RoutePlan? = null
         private set
-    @Volatile private var bootCount = -2
     /** Joystick position sent straight to system_server; newer than the stored config while moving. */
     @Volatile private var move: Move? = null
 
@@ -110,25 +109,17 @@ object Sim {
         validate()
     }
 
-    /** A config from an earlier boot must not resume after a restart; until the boot count is known nothing applies. */
+    /** A config from an earlier boot must not resume after a restart. */
     private fun validate() {
         val c = raw
         if (c == SimConfig.OFF) { publish(SimConfig.OFF); return }
-        if (bootCount < 0) bootCount = readBootCount()
-        when {
-            bootCount < 0 -> {
-                publish(SimConfig.OFF)
-                Diag.report(Diag.configKey, false, "waiting", "等待系统设置可读（启动计数）：$bootError")
-                worker.postDelayed({ validate() }, 3000)
-            }
-            c.boot != bootCount -> {
-                publish(SimConfig.OFF)
-                Diag.report(Diag.configKey, true, "stale", "配置来自上次开机（${c.boot} ≠ $bootCount），已忽略；打开 App 重新开始模拟")
-            }
-            else -> {
-                publish(c)
-                Diag.report(Diag.configKey, true, "synced", "已收到配置：" + if (c.active) "模拟中" else "未模拟")
-            }
+        val now = SimConfig.bootMoment(System.currentTimeMillis(), SystemClock.elapsedRealtime())
+        if (!c.sameBoot(now)) {
+            publish(SimConfig.OFF)
+            Diag.report(Diag.configKey, true, "stale", "配置来自上次开机，已忽略；打开 App 重新开始模拟")
+        } else {
+            publish(c)
+            Diag.report(Diag.configKey, true, "synced", "已收到配置：" + if (c.active) "模拟中" else "未模拟")
         }
     }
 
@@ -136,17 +127,6 @@ object Sim {
         val changed = c != effective
         effective = c
         if (changed) synchronized(listeners) { listeners.toList() }.forEach { runCatching(it) }
-    }
-
-    @Volatile private var bootError = ""
-
-    private fun readBootCount(): Int = try {
-        val ctx = Contexts.get() ?: run { bootError = "无 Context"; return -1 }
-        android.provider.Settings.Global.getInt(ctx.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
-            .also { if (it < 0) bootError = "BOOT_COUNT 不可用" }
-    } catch (e: Throwable) {
-        bootError = e.javaClass.simpleName
-        -1
     }
 
     private fun loadRoute(c: SimConfig) {

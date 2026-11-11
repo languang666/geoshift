@@ -80,7 +80,7 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
         })
     }
 
-    fun bootCount(): Int = Global.getInt(context.contentResolver, Global.BOOT_COUNT, -1)
+    fun bootAt(): Long = SimConfig.bootMoment(System.currentTimeMillis(), SystemClock.elapsedRealtime())
 
     /**
      * Writes the config for the hooks. While a route plays or the joystick moves, the position changes

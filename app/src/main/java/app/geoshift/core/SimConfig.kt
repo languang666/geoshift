@@ -10,8 +10,11 @@ import kotlinx.serialization.json.Json
  */
 @Serializable
 data class SimConfig(
-    /** Settings.Global.BOOT_COUNT when written; a config from an earlier boot is ignored. */
-    val boot: Int = -1,
+    /**
+     * When the device booted (wall clock − elapsedRealtime, ms) as the app saw it. A config from an
+     * earlier boot is ignored: after a reboot this moves by at least the whole previous uptime.
+     */
+    val bootAt: Long = 0,
     /** elapsedRealtime when written; a joystick step sent after this overrides [position]. */
     val writtenAt: Long = 0,
     /** Location simulation is running (LSPosed backend). */
@@ -50,7 +53,13 @@ data class SimConfig(
 
     fun encode(): String = JSON.encodeToString(serializer(), this)
 
+    /** Whether this config was written during the boot that started at [bootAt] (±[BOOT_TOLERANCE_MS]). */
+    fun sameBoot(currentBootAt: Long) = bootAt > 0 && kotlin.math.abs(bootAt - currentBootAt) < BOOT_TOLERANCE_MS
+
     companion object {
+        const val BOOT_TOLERANCE_MS = 60_000L
+        /** Boot moment on this device right now. */
+        fun bootMoment(wallMs: Long, elapsedMs: Long) = wallMs - elapsedMs
         val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = false }
         fun decode(text: String): SimConfig = JSON.decodeFromString(serializer(), text)
         val OFF = SimConfig()

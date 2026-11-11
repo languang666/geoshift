@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FixTest {
-    private val config = SimConfig(boot = 3, active = true, position = LatLon(31.2304, 121.4737), noiseSeed = 42, accuracy = 5.0)
+    private val config = SimConfig(bootAt = 3, active = true, position = LatLon(31.2304, 121.4737), noiseSeed = 42, accuracy = 5.0)
 
     @Test fun sameMomentSameFix() {
         val clock = TestClock()
