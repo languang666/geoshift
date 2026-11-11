@@ -1,118 +1,170 @@
 package app.geoshift.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.geoshift.data.ThemeMode
 
-/** Brand blue: actions and selection. */
-val Indigo = Color(0xFF2F62F5)
-/** "Simulating" green: every place that shows the simulation is running uses it. */
-val Success = Color(0xFF14A06F)
-val Warning = Color(0xFFE08A12)
-val Danger = Color(0xFFDC4A5A)
+/*
+ * A system-app look in the style of current iOS: grouped backgrounds, the system tint colours,
+ * large titles and generously rounded, borderless cards. Colours follow the iOS system palette.
+ */
 
-/** Gradient for the running state (status panel, console header). */
-val LiveStart = Color(0xFF0FA47A)
-val LiveEnd = Color(0xFF1C7FD8)
+/** Tint colours (system palette, light / dark variants picked by [Palette]). */
+class Palette(
+    val blue: Color, val green: Color, val red: Color, val orange: Color, val yellow: Color,
+    val teal: Color, val indigo: Color, val purple: Color, val pink: Color, val gray: Color,
+    /** Hairline separators inside grouped lists. */
+    val separator: Color,
+    /** Fill behind controls (segmented control track, search field). */
+    val fill: Color,
+    /** Glass surfaces floating over content (tab bar, map controls). */
+    val glass: Color,
+    val glassEdge: Color,
+    val dark: Boolean,
+)
+
+private val LightPalette = Palette(
+    blue = Color(0xFF007AFF), green = Color(0xFF34C759), red = Color(0xFFFF3B30), orange = Color(0xFFFF9500),
+    yellow = Color(0xFFFFCC00), teal = Color(0xFF30B0C7), indigo = Color(0xFF5856D6), purple = Color(0xFFAF52DE),
+    pink = Color(0xFFFF2D55), gray = Color(0xFF8E8E93),
+    separator = Color(0x4A3C3C43), fill = Color(0x1F767680),
+    glass = Color(0xEDFCFCFD), glassEdge = Color(0xB3FFFFFF), dark = false,
+)
+
+private val DarkPalette = Palette(
+    blue = Color(0xFF0A84FF), green = Color(0xFF30D158), red = Color(0xFFFF453A), orange = Color(0xFFFF9F0A),
+    yellow = Color(0xFFFFD60A), teal = Color(0xFF40C8E0), indigo = Color(0xFF5E5CE6), purple = Color(0xFFBF5AF2),
+    pink = Color(0xFFFF375F), gray = Color(0xFF8E8E93),
+    separator = Color(0x99545458), fill = Color(0x3D767680),
+    glass = Color(0xE62C2C2E), glassEdge = Color(0x24FFFFFF), dark = true,
+)
+
+val LocalPalette = staticCompositionLocalOf { LightPalette }
+
+/** Brand / action colour. */
+val Indigo = Color(0xFF007AFF)
+/** "Simulating" green: everything that shows the simulation is running uses it. */
+val Success = Color(0xFF34C759)
+val Warning = Color(0xFFFF9500)
+val Danger = Color(0xFFFF3B30)
+
+/** Running-state gradient (status card). */
+val LiveStart = Color(0xFF30D158)
+val LiveEnd = Color(0xFF00A86B)
 
 private val Light = lightColorScheme(
-    primary = Indigo,
+    primary = LightPalette.blue,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE3EAFF),
-    onPrimaryContainer = Color(0xFF0F2A7A),
-    secondary = Color(0xFF4F5B76),
-    secondaryContainer = Color(0xFFE8ECF4),
-    onSecondaryContainer = Color(0xFF18213A),
-    tertiary = Success,
-    tertiaryContainer = Color(0xFFDDF5EB),
-    onTertiaryContainer = Color(0xFF07432E),
-    background = Color(0xFFF3F5F9),
-    surface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFFEEF1F6),
-    surfaceContainer = Color(0xFFF0F2F7),
-    surfaceContainerLow = Color(0xFFFFFFFF),
-    surfaceContainerHigh = Color(0xFFE9ECF3),
-    surfaceContainerHighest = Color(0xFFE2E6EE),
-    onSurface = Color(0xFF151A26),
-    onSurfaceVariant = Color(0xFF636B80),
-    outline = Color(0xFFC5CBD8),
-    outlineVariant = Color(0xFFE3E7EF),
-    error = Danger,
+    primaryContainer = Color(0xFFE5F1FF),
+    onPrimaryContainer = Color(0xFF00408A),
+    secondary = Color(0xFF8E8E93),
+    secondaryContainer = Color(0xFFE9E9EB),
+    onSecondaryContainer = Color(0xFF1C1C1E),
+    tertiary = LightPalette.green,
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFE3F8E8),
+    onTertiaryContainer = Color(0xFF0B5A21),
+    background = Color(0xFFF2F2F7),
+    onBackground = Color.Black,
+    surface = Color.White,
+    onSurface = Color.Black,
+    surfaceVariant = Color(0xFFF2F2F7),
+    onSurfaceVariant = Color(0xFF8A8A8E),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color.White,
+    surfaceContainer = Color(0xFFF2F2F7),
+    surfaceContainerHigh = Color(0xFFE9E9EB),
+    surfaceContainerHighest = Color(0xFFE3E3E8),
+    outline = Color(0xFFC4C4C7),
+    outlineVariant = Color(0xFFE5E5EA),
+    error = LightPalette.red,
 )
 
 private val Dark = darkColorScheme(
-    primary = Color(0xFF8EAEFF),
-    onPrimary = Color(0xFF082269),
-    primaryContainer = Color(0xFF22408F),
-    onPrimaryContainer = Color(0xFFDDE5FF),
-    secondary = Color(0xFFBCC5DA),
-    secondaryContainer = Color(0xFF2A3245),
-    onSecondaryContainer = Color(0xFFDCE2F2),
-    tertiary = Color(0xFF5BD6A6),
-    tertiaryContainer = Color(0xFF0D4A35),
-    onTertiaryContainer = Color(0xFFC8F5E2),
-    background = Color(0xFF0E1117),
-    surface = Color(0xFF171B23),
-    surfaceVariant = Color(0xFF212633),
-    surfaceContainer = Color(0xFF1A1E27),
-    surfaceContainerLow = Color(0xFF171B23),
-    surfaceContainerHigh = Color(0xFF222734),
-    surfaceContainerHighest = Color(0xFF2A303E),
-    onSurface = Color(0xFFE6E9F1),
-    onSurfaceVariant = Color(0xFF99A1B5),
-    outline = Color(0xFF465065),
-    outlineVariant = Color(0xFF272D3A),
-    error = Color(0xFFFF8A97),
+    primary = DarkPalette.blue,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF0A2A4D),
+    onPrimaryContainer = Color(0xFFBFDCFF),
+    secondary = Color(0xFF98989F),
+    secondaryContainer = Color(0xFF2C2C2E),
+    onSecondaryContainer = Color(0xFFEBEBF5),
+    tertiary = DarkPalette.green,
+    onTertiary = Color.Black,
+    tertiaryContainer = Color(0xFF0E3A1C),
+    onTertiaryContainer = Color(0xFFB4F0C4),
+    background = Color.Black,
+    onBackground = Color.White,
+    surface = Color(0xFF1C1C1E),
+    onSurface = Color.White,
+    surfaceVariant = Color(0xFF1C1C1E),
+    onSurfaceVariant = Color(0xFF98989F),
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF1C1C1E),
+    surfaceContainer = Color(0xFF1C1C1E),
+    surfaceContainerHigh = Color(0xFF2C2C2E),
+    surfaceContainerHighest = Color(0xFF3A3A3C),
+    outline = Color(0xFF5A5A5E),
+    outlineVariant = Color(0xFF38383A),
+    error = DarkPalette.red,
 )
 
+/** iOS 26 rounds everything generously: cards ~26, sheets ~34. */
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(20.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(26.dp),
+    extraLarge = RoundedCornerShape(34.dp),
 )
 
+/** iOS text styles: Large Title 34, Title 28/22/20, Headline 17 semibold, Body 17, Subhead 15, Footnote 13, Caption 12. */
 private val AppType = Typography().let { t ->
+    fun s(size: Int, line: Int, weight: FontWeight = FontWeight.Normal, track: Double = 0.0) =
+        TextStyle(fontSize = size.sp, lineHeight = line.sp, fontWeight = weight, letterSpacing = track.sp)
     t.copy(
-        headlineSmall = t.headlineSmall.copy(fontWeight = FontWeight.Bold, fontSize = 24.sp),
-        titleLarge = t.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-        titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-        titleSmall = t.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-        labelLarge = t.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+        displaySmall = s(34, 41, FontWeight.Bold, 0.4),
+        headlineLarge = s(34, 41, FontWeight.Bold, 0.4),
+        headlineMedium = s(28, 34, FontWeight.Bold, 0.36),
+        headlineSmall = s(34, 41, FontWeight.Bold, 0.37),
+        titleLarge = s(22, 28, FontWeight.Bold, 0.35),
+        titleMedium = s(17, 22, FontWeight.SemiBold, -0.41),
+        titleSmall = s(15, 20, FontWeight.SemiBold, -0.24),
+        bodyLarge = s(17, 22, track = -0.41),
+        bodyMedium = s(15, 20, track = -0.24),
+        bodySmall = s(13, 18, track = -0.08),
+        labelLarge = s(15, 20, FontWeight.SemiBold, -0.24),
+        labelMedium = s(13, 18, FontWeight.Normal, -0.08),
+        labelSmall = s(11, 13, FontWeight.Medium, 0.07),
     )
 }
 
 @Composable
-fun isDark(theme: String): Boolean = when (theme) {
-    "dark" -> true
-    "light" -> false
-    else -> isSystemInDarkTheme()
+fun isDark(theme: ThemeMode): Boolean = when (theme) {
+    ThemeMode.DARK -> true
+    ThemeMode.LIGHT -> false
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
 }
 
 @Composable
-fun PortalTheme(theme: String, content: @Composable () -> Unit) {
+fun GeoshiftTheme(theme: ThemeMode, content: @Composable () -> Unit) {
     val dark = isDark(theme)
-    val context = LocalContext.current
-    val colorScheme = when {
-        theme == "dynamic" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        dark -> Dark
-        else -> Light
+    CompositionLocalProvider(LocalPalette provides if (dark) DarkPalette else LightPalette) {
+        MaterialTheme(colorScheme = if (dark) Dark else Light, shapes = AppShapes, typography = AppType, content = content)
     }
-    MaterialTheme(colorScheme = colorScheme, shapes = AppShapes, typography = AppType, content = content)
 }
+
+/** The current system palette. */
+val palette: Palette @Composable get() = LocalPalette.current

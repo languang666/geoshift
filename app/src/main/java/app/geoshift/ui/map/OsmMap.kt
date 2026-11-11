@@ -21,8 +21,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import app.geoshift.data.LatLon
-import app.geoshift.MapSource
+import app.geoshift.core.LatLon
+import app.geoshift.map.MapSource
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
@@ -45,10 +45,10 @@ private const val INDIGO = 0xFF5266E8.toInt()
 private const val PIN = 0xFFE5484D.toInt()
 
 private fun MapSource.display(point: LatLon): GeoPoint =
-    toDisplay(point.lat, point.lon).let { GeoPoint(it[0], it[1]) }
+    toDisplay(point).let { GeoPoint(it.lat, it.lon) }
 
 private fun MapSource.wgs(point: IGeoPoint): LatLon =
-    toWgs(point.latitude, point.longitude).let { LatLon(it[0], it[1]) }
+    toWgs(LatLon(point.latitude, point.longitude))
 
 /** Shared map view; only display coordinates change when switching tile sources. */
 /** The plain OpenStreetMap layer; the other layers are drawn by MapLibre (VectorMap). */

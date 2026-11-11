@@ -16,6 +16,7 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false"/>
     <queries>
         <package android:name="org.lsposed.manager"/>
+        <package android:name="org.matrix.vector.manager"/>
         <!-- App picker for "模拟范围": launchable apps only, no QUERY_ALL_PACKAGES. -->
         <intent>
             <action android:name="android.intent.action.MAIN"/>
@@ -24,6 +25,7 @@
     </queries>
 
     <application
+        android:name=".App"
         android:label="Geoshift"
         android:description="@string/module_description"
         android:icon="@drawable/ic_portal"
@@ -43,11 +45,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <service android:name=".SimulationService" android:exported="false" android:foregroundServiceType="location"/>
-        <service android:name=".OverlayService" android:exported="false" android:foregroundServiceType="location"/>
-        <meta-data android:name="xposedmodule" android:value="true"/>
-        <meta-data android:name="xposedminversion" android:value="82"/>
-        <meta-data android:name="xposeddescription" android:value="@string/module_description"/>
-        <meta-data android:name="xposedscope" android:resource="@array/xposed_scope"/>
+        <service android:name=".service.SimulationService" android:exported="false" android:foregroundServiceType="location"/>
+        <service android:name=".service.JoystickService" android:exported="false" android:foregroundServiceType="location"/>
     </application>
 </manifest>

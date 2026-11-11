@@ -13,8 +13,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import app.geoshift.MapSource
-import app.geoshift.data.LatLon
+import app.geoshift.map.MapSource
+import app.geoshift.core.LatLon
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -171,9 +171,9 @@ private class VectorLayers(
     /** Coordinate system of the current style: GCJ-02 for AMap, WGS-84 otherwise. Stored data stays WGS-84. */
     private var source = MapSource.VECTOR
 
-    private fun LatLon.latLng() = source.toDisplay(lat, lon).let { LatLng(it[0], it[1]) }
-    private fun LatLon.point(): Point = source.toDisplay(lat, lon).let { Point.fromLngLat(it[1], it[0]) }
-    private fun LatLng.stored(): LatLon = source.toWgs(latitude, longitude).let { LatLon(it[0], it[1]) }
+    private fun LatLon.latLng() = source.toDisplay(this).let { LatLng(it.lat, it.lon) }
+    private fun LatLon.point(): Point = source.toDisplay(this).let { Point.fromLngLat(it.lon, it.lat) }
+    private fun LatLng.stored(): LatLon = source.toWgs(LatLon(latitude, longitude))
 
     // Latest data, re-applied whenever a style finishes loading.
     private var virtual: LatLon = camera.target

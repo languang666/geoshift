@@ -13,14 +13,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import app.geoshift.ui.PortalApp
-import app.geoshift.ui.PortalViewModel
+import app.geoshift.ui.GeoshiftApp
+import app.geoshift.ui.AppViewModel
 import app.geoshift.ui.setup.SystemTarget
 import org.osmdroid.config.Configuration
 import java.io.File
 
 class MainActivity : ComponentActivity() {
-    private val vm: PortalViewModel by viewModels()
+    private val vm: AppViewModel by viewModels()
 
     private var permissionAskedAt = 0L
 
@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
             osmdroidTileCache = File(cacheDir, "osmdroid/tiles")
         }
         setContent {
-            PortalApp(
+            GeoshiftApp(
                 vm = vm,
                 onOpen = ::open,
                 onExport = { exportDoc.launch("geoshift-backup-${System.currentTimeMillis()}.json") },
@@ -68,15 +68,15 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.foreground = true
-        app.geoshift.PortalStore.uiVisible = true
+        vm.engine.uiVisible = true
         // The service clock was slow in the background; bring the position up to date now.
-        SimulationService.command(this, "UPDATE")
+        app.geoshift.service.SimulationService.nudge()
         vm.refresh()
     }
 
     override fun onPause() {
         vm.foreground = false
-        app.geoshift.PortalStore.uiVisible = false
+        vm.engine.uiVisible = false
         super.onPause()
     }
 
@@ -97,17 +97,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Old LSPosed ships a launcher app; current LSPosed hides its manager inside the system Shell
-     * package. Try both, then explain the remaining ways in.
+     * Some frameworks ship a launcher app; LSPosed-derived ones (Vector) hide the manager inside the
+     * system Shell package. Try both, then explain the remaining ways in.
      */
     private fun openLsposed() {
-        packageManager.getLaunchIntentForPackage("org.lsposed.manager")?.let { if (tryStart(it)) return }
+        for (pkg in listOf("org.matrix.vector.manager", "org.lsposed.manager"))
+            packageManager.getLaunchIntentForPackage(pkg)?.let { if (tryStart(it)) return }
         val parasitic = Intent(Intent.ACTION_MAIN)
             .addCategory("org.lsposed.manager.LAUNCH_MANAGER")
             .setComponent(ComponentName("com.android.shell", "com.android.shell.BugreportWarningActivity"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (tryStart(parasitic)) return
-        vm.showLsposedHelp()
+        vm.showFrameworkHelp()
     }
 
     private fun tryStart(intent: Intent): Boolean = try {

@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -12,8 +13,8 @@ android {
         applicationId = "app.geoshift"
         minSdk = 26
         targetSdk = 35
-        versionCode = 34
-        versionName = "2.7.6"
+        versionCode = 40
+        versionName = "3.0.0"
         // Native map code is per ABI. Phones are ARM; build with -Pemulator to add x86_64 for the emulator.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -33,6 +34,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
     buildFeatures {
         compose = true
@@ -61,5 +65,8 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.10.2")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("org.maplibre.gl:android-sdk:13.7.1")
-    compileOnly(files("libs/xposed-api-82.jar"))
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    compileOnly("io.github.libxposed:api:102.0.0")
+    implementation("io.github.libxposed:service:102.0.0")
+    testImplementation("junit:junit:4.13.2")
 }

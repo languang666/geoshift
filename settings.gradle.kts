@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "PortalCompose"
+rootProject.name = "Geoshift"
 include(":app")

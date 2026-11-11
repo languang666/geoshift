@@ -1,6 +1,19 @@
 package app.geoshift.ui.components
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.unit.Dp
+import app.geoshift.ui.theme.palette
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,51 +70,119 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Flat card with a hairline border, used across all screens. */
+/** Inset grouped card (iOS list section): rounded, borderless, on the grouped background. */
 @Composable
 fun PortalCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = MaterialTheme.shapes.large
     Surface(
         modifier = modifier.fillMaxWidth().clip(shape).let { if (onClick != null) it.clickable(onClick = onClick) else it },
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.surface,
     ) {
         Column(Modifier.padding(16.dp), content = content)
     }
 }
 
-/** Large page title under the status bar, with optional actions on the right. */
+/** Large title, as at the top of iOS system apps, with optional actions on the right. */
 @Composable
 fun PageHeader(title: String, subtitle: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 18.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.Bottom,
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
-            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         actions()
     }
 }
 
+/** Section header above a grouped list. */
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp,
-        modifier = modifier.padding(start = 24.dp, top = 20.dp, bottom = 8.dp))
+        modifier = modifier.padding(start = 36.dp, end = 36.dp, top = 22.dp, bottom = 7.dp))
 }
 
-/** Tinted rounded icon square. */
+/** Footer text under a grouped list. */
 @Composable
-fun IconBadge(icon: ImageVector, tint: Color = MaterialTheme.colorScheme.primary, size: Int = 40) {
-    Box(Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.3f).dp)).background(tint.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size((size * 0.55f).dp))
+fun SectionFooter(text: String, modifier: Modifier = Modifier) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(start = 36.dp, end = 36.dp, top = 7.dp))
+}
+
+/** Solid rounded-square icon tile with a white glyph, as in iOS Settings. */
+@Composable
+fun IconBadge(icon: ImageVector, tint: Color = MaterialTheme.colorScheme.primary, size: Int = 30) {
+    Box(Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.24f).dp)).background(tint), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size((size * 0.62f).dp))
     }
 }
 
-/** Settings-style row: icon, title, subtitle, and a trailing value / chevron / switch. */
+/** Settings row colour for an icon, picked from the system palette by its position so groups look varied. */
+@Composable
+fun rowTint(icon: ImageVector?): Color {
+    val p = palette
+    val colors = listOf(p.blue, p.green, p.orange, p.indigo, p.red, p.teal, p.purple, p.pink, p.gray)
+    return colors[((icon?.name?.hashCode() ?: 0) and 0x7fffffff) % colors.size]
+}
+
+/** iOS-style switch: green capsule track, white knob. */
+@Composable
+fun IosSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: Boolean = true, modifier: Modifier = Modifier) {
+    val p = palette
+    val track by animateColorAsState(if (checked) p.green else if (p.dark) Color(0xFF39393D) else Color(0xFFE3E3E8), label = "track")
+    val offset by animateDpAsState(if (checked) 20.dp else 0.dp, label = "knob")
+    Box(
+        modifier.size(51.dp, 31.dp).clip(CircleShape).background(track)
+            .let { if (onCheckedChange != null && enabled) it.toggleable(checked, onValueChange = onCheckedChange) else it }
+            .alpha(if (enabled) 1f else 0.5f).padding(2.dp),
+    ) {
+        Box(Modifier.offset(x = offset).size(27.dp).shadow(2.dp, CircleShape).clip(CircleShape).background(Color.White))
+    }
+}
+
+/** iOS segmented control: a filled track with a raised white segment. */
+@Composable
+fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+    val p = palette
+    Row(
+        modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(17.dp)).background(p.fill).padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEachIndexed { i, label ->
+            val on = i == selected
+            Box(
+                Modifier.weight(1f).fillMaxHeight()
+                    .let { if (on) it.shadow(1.5.dp, RoundedCornerShape(15.dp)) else it }
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(if (on) (if (p.dark) Color(0xFF636366) else Color.White) else Color.Transparent)
+                    .clickable { onSelect(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+    }
+}
+
+/**
+ * Liquid-glass surface for controls floating over content (tab bar, map buttons): translucent fill,
+ * a light rim and a soft shadow.
+ */
+fun Modifier.glass(shape: Shape, fill: Color, edge: Color, elevation: Dp = 10.dp): Modifier =
+    this.shadow(elevation, shape, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
+        .clip(shape).background(fill).border(0.6.dp, edge, shape)
+
+@Composable
+fun Modifier.glass(shape: Shape = CircleShape, elevation: Dp = 10.dp): Modifier {
+    val p = palette
+    return glass(shape, p.glass, p.glassEdge, elevation)
+}
+
+/** Settings-style row: icon tile, title, subtitle, and a trailing value / chevron / switch. */
 @Composable
 fun SettingRow(
     title: String,
@@ -113,17 +193,17 @@ fun SettingRow(
     enabled: Boolean = true,
     onCheckedChange: ((Boolean) -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    tint: Color? = null,
 ) {
     val click = onClick ?: if (checked != null && onCheckedChange != null) ({ onCheckedChange(!checked) }) else null
     Row(
-        Modifier.fillMaxWidth().let { if (click != null && enabled) it.clickable(onClick = click) else it }
-            .padding(horizontal = 16.dp, vertical = 11.dp),
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).let { if (click != null && enabled) it.clickable(onClick = click) else it }
+            .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(16.dp))
+            Box(Modifier.alpha(if (enabled) 1f else 0.45f)) { IconBadge(icon, tint ?: rowTint(icon)) }
+            Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge,
@@ -131,36 +211,32 @@ fun SettingRow(
             if (!subtitle.isNullOrEmpty()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (value != null) {
-            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).widthIn(max = 150.dp))
+            Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).widthIn(max = 160.dp))
         }
         when {
-            checked != null -> Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange, modifier = Modifier.padding(start = 8.dp))
-            onClick != null -> Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
+            checked != null -> IosSwitch(checked, onCheckedChange, enabled, Modifier.padding(start = 10.dp))
+            onClick != null -> Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(start = 4.dp).size(22.dp))
         }
     }
 }
 
-/** Card containing a group of [SettingRow]s. */
+/** Inset grouped list of [SettingRow]s. */
 @Composable
 fun SettingGroup(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(Modifier.padding(vertical = 4.dp), content = content)
+    Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
+        Column(content = content)
     }
 }
 
-/** Hairline between rows of a [SettingGroup], aligned with the row text. */
+/** Hairline between rows of a grouped list, starting where the row text starts. */
 @Composable
 fun RowDivider(icon: Boolean = true) =
-    HorizontalDivider(Modifier.padding(start = if (icon) 54.dp else 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    HorizontalDivider(Modifier.padding(start = if (icon) 60.dp else 16.dp), thickness = 0.5.dp, color = palette.separator)
 
 /**
- * Console tile: icon, title and state; tinted when on. Tap toggles or opens, as the caller decides.
+ * Control Center-style tile: icon, title and state. When on, the icon disc fills with the tint.
  */
 @Composable
 fun ToggleTile(
@@ -173,23 +249,21 @@ fun ToggleTile(
     hasSubpage: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val accent = MaterialTheme.colorScheme.tertiary
-    val shape = RoundedCornerShape(20.dp)
+    val accent = palette.green
+    val shape = MaterialTheme.shapes.large
     Surface(
         modifier = modifier.clip(shape).clickable(enabled = enabled, onClick = onClick),
         shape = shape,
-        color = if (on) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
-        border = if (on) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.surface,
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(38.dp).clip(CircleShape)
-                    .background(if (on) accent else MaterialTheme.colorScheme.surfaceContainerHigh),
+                Modifier.size(40.dp).clip(CircleShape).background(if (on) accent else palette.fill),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, null, Modifier.size(20.dp),
+                Icon(icon, null, Modifier.size(21.dp),
                     tint = when {
-                        on -> MaterialTheme.colorScheme.surface
+                        on -> Color.White
                         enabled -> MaterialTheme.colorScheme.onSurface
                         else -> MaterialTheme.colorScheme.outline
                     })
@@ -199,16 +273,9 @@ fun ToggleTile(
                 Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
                     color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(state, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = if (on) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = if (on) accent else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (hasSubpage) {
-                Icon(
-                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = if (on) MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+            if (hasSubpage) Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -251,7 +318,7 @@ fun CoordinateRow(
 @Composable
 fun EmptyState(icon: ImageVector, title: String, detail: String, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(vertical = 56.dp, horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        IconBadge(icon, tint = MaterialTheme.colorScheme.primary, size = 72)
+        Icon(icon, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(64.dp))
         Spacer(Modifier.size(16.dp))
         Text(title, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.size(6.dp))

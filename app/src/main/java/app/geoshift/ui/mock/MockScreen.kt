@@ -65,10 +65,12 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.geoshift.data.LatLon
-import app.geoshift.data.PortalState
+import app.geoshift.core.LatLon
+import app.geoshift.ui.AppState
 import app.geoshift.data.SpeedMode
-import app.geoshift.ui.PortalViewModel
+import app.geoshift.ui.AppViewModel
+import app.geoshift.ui.components.Segmented
+import app.geoshift.ui.components.IosSwitch
 import app.geoshift.ui.components.ConfirmDialog
 import app.geoshift.ui.components.CoordinateRow
 import app.geoshift.ui.components.InputDialog
@@ -89,14 +91,17 @@ import app.geoshift.ui.theme.LiveStart
 import app.geoshift.ui.theme.Warning
 import kotlinx.coroutines.delay
 import java.util.Locale
+import app.geoshift.core.Repeat
+import app.geoshift.core.Geo
 
 /** Problems that keep simulation from starting, each with a short fix description. */
-fun readinessIssues(s: PortalState): List<String> = buildList {
+fun readinessIssues(s: AppState): List<String> = buildList {
     if (!s.settings.privacyAccepted) add("尚未同意使用须知")
     if (!s.caps.preciseLocation) add("未授予精确位置权限")
     if (!s.caps.locationEnabled) add("系统定位已关闭")
-    if (s.settings.lsposed) {
-        if (!s.caps.hookActive) add("未检测到LSPosed模块")
+    if (s.settings.xposed) {
+        if (s.caps.framework == null) add("Xposed 框架中未启用 Geoshift")
+        else if (!s.caps.hookActive) add("系统框架中未运行 Geoshift 模块")
     } else if (!s.caps.mockSelected) add("未将本应用设为模拟位置信息应用")
 }
 
@@ -106,8 +111,8 @@ fun readinessIssues(s: PortalState): List<String> = buildList {
  */
 @Composable
 fun MockScreen(
-    s: PortalState,
-    vm: PortalViewModel,
+    s: AppState,
+    vm: AppViewModel,
     contentPadding: PaddingValues,
     onOpenSetup: () -> Unit,
     onOpenWifi: () -> Unit,
@@ -134,12 +139,12 @@ fun MockScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(bottom = contentPadding.calculateBottomPadding() + 20.dp),
     ) {
-        PageHeader("控制台", if (s.settings.lsposed) "LSPosed 系统级模拟" else "标准 Android 模拟位置")
+        PageHeader("控制台", if (s.settings.xposed) "Xposed 系统级模拟" else "标准 Android 模拟位置")
 
         StatusHero(s, currentAddress,
             onToggle = {
                 if (r.enabled) vm.run("模拟定位已关闭") { stop() }
-                else vm.run("模拟定位已开启") { if (r.routeMode && r.route.size >= 2) startRoute() else startPoint() }
+                else vm.run("模拟定位已开启") { if (r.routeMode && s.currentRoute.size >= 2) startRoute() else startPoint() }
             },
             onPause = { vm.run(if (r.routeFinished) "路线重新开始" else if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
             onCopyCoord = { vm.toast("虚拟坐标已复制到剪贴板") },
@@ -169,26 +174,26 @@ fun MockScreen(
                     if (r.enabled && !r.routeMode) "固定在虚拟位置" else "点击开启", r.enabled && !r.routeMode, Modifier.weight(1f)) {
                     if (r.enabled && !r.routeMode) vm.run("模拟定位已关闭") { stop() } else vm.run("模拟定位已开启") { startPoint() }
                 }
-                ToggleTile(Icons.Rounded.SportsEsports, "摇杆", if (r.overlay) "悬浮窗已显示" else "拖动圆盘移动", r.overlay, Modifier.weight(1f)) {
-                    vm.run(if (r.overlay) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { overlay(!r.overlay) }
+                ToggleTile(Icons.Rounded.SportsEsports, "摇杆", if (r.joystick) "悬浮窗已显示" else "拖动圆盘移动", r.joystick, Modifier.weight(1f)) {
+                    vm.run(if (r.joystick) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { joystick(!r.joystick) }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ToggleTile(Icons.Rounded.Wifi, "Wi-Fi", if (r.wifiEnabled) r.wifi.optString("ssid").ifEmpty { "已开启" } else "未设置",
+                ToggleTile(Icons.Rounded.Wifi, "Wi-Fi", if (r.wifiEnabled) r.wifi?.ssid ?: "已开启" else "未设置",
                     r.wifiEnabled, Modifier.weight(1f), hasSubpage = true, onClick = onOpenWifi)
-                ToggleTile(Icons.Rounded.CellTower, "基站", if (r.cellEnabled) "${r.cellCount.coerceAtLeast(1)} 个小区" else "未设置",
+                ToggleTile(Icons.Rounded.CellTower, "基站", if (r.cellEnabled) "${r.cells.size.coerceAtLeast(1)} 个小区" else "未设置",
                     r.cellEnabled, Modifier.weight(1f), hasSubpage = true, onClick = onOpenCell)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToggleTile(Icons.Rounded.SatelliteAlt, "卫星",
                     when {
-                        !s.caps.gnssSimulation -> "需 Android 11+ 与 LSPosed"
-                        s.settings.gnssEnabled -> "${s.settings.satelliteCount} 颗卫星"
+                        !s.caps.gnssSimulation -> "需 Android 11+ 与 Xposed"
+                        s.settings.gnss -> "${s.settings.satellites} 颗卫星"
                         else -> "点击开启"
                     },
-                    s.settings.gnssEnabled, Modifier.weight(1f), enabled = s.caps.gnssSimulation) {
-                    val on = !s.settings.gnssEnabled
-                    vm.run(if (on) "卫星模拟已开启" else "卫星模拟已关闭") { setGnss(on, s.settings.satelliteCount) }
+                    s.settings.gnss, Modifier.weight(1f), enabled = s.caps.gnssSimulation) {
+                    val on = !s.settings.gnss
+                    vm.run(if (on) "卫星模拟已开启" else "卫星模拟已关闭") { setGnss(on, s.settings.satellites) }
                 }
                 ToggleTile(Icons.Rounded.Radar, "记录环境", "保存基站和 Wi-Fi",
                     false, Modifier.weight(1f)) {
@@ -202,9 +207,9 @@ fun MockScreen(
 
         SectionTitle("工具")
         SettingGroup {
-            if (s.settings.gnssEnabled) {
+            if (s.settings.gnss) {
                 SettingRow("卫星数量", "4–32 颗，前 12 颗参与定位", icon = Icons.Rounded.Numbers,
-                    value = "${s.settings.satelliteCount}", onClick = { gnssDialog = true })
+                    value = "${s.settings.satellites}", onClick = { gnssDialog = true })
                 RowDivider()
             }
             SettingRow("获取真实位置", originalPosition?.let { "真实 GPS：${formatCoord(it.lat, it.lon)}" }
@@ -215,7 +220,7 @@ fun MockScreen(
                 onClick = { originalPosition = null; vm.run("模拟已停止，请等待系统重新定位") { clearSimulation() } })
         }
 
-        if (s.settings.lsposed) {
+        if (s.settings.xposed) {
             SectionTitle("系统诊断")
             // Sensors are delivered inside each app's own process, so Geoshift (system-side, no app
             // injection) cannot forge them. Warn when the simulated speed is clearly non-walking: a
@@ -242,7 +247,7 @@ fun MockScreen(
     }
 
     if (gnssDialog) {
-        InputDialog("卫星数量", initial = s.settings.satelliteCount.toString(), number = true, hint = "范围 4–32，前 12 颗参与定位解算",
+        InputDialog("卫星数量", initial = s.settings.satellites.toString(), number = true, hint = "范围 4–32，前 12 颗参与定位解算",
             onDismiss = { gnssDialog = false }) { v ->
             val n = v.toIntOrNull()
             if (n == null) vm.toast("请输入整数") else vm.run("设置已应用") { setGnss(true, n) }
@@ -266,13 +271,13 @@ fun MockScreen(
 
 /** Big status panel: green gradient while simulating, a quiet card otherwise. */
 @Composable
-private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, onPause: () -> Unit, onCopyCoord: () -> Unit) {
+private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPause: () -> Unit, onCopyCoord: () -> Unit) {
     val r = s.runtime
     val on = r.enabled
     val haptic = LocalHapticFeedback.current
-    val shape = RoundedCornerShape(24.dp)
+    val shape = MaterialTheme.shapes.large
     val background = if (on) Brush.linearGradient(listOf(LiveStart, LiveEnd))
-    else Brush.linearGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surfaceContainerHigh))
+    else Brush.linearGradient(listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surface))
     val fg = if (on) Color.White else MaterialTheme.colorScheme.onSurface
     val sub = if (on) Color.White.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
     Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(shape).background(background).padding(20.dp)) {
@@ -313,8 +318,8 @@ private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, on
             Text(String.format(Locale.ROOT, "%.1f km/h · 方向 %.0f°（%s）", r.speed * 3.6, r.bearing, dir),
                 style = MaterialTheme.typography.bodySmall, color = sub)
         }
-        if (on && r.routeMode && r.route.size >= 2) {
-            val totalLength = app.geoshift.data.routeLength(r.route)
+        if (on && r.routeMode && s.currentRoute.size >= 2) {
+            val totalLength = Geo.routeLength(s.currentRoute)
             val remainingMetres = (totalLength * (1.0 - r.progress)).coerceAtLeast(0.0)
             val currentSpeed = if (r.speed > 0.1) r.speed else (s.settings.speedMode.metresPerSecond * s.settings.speedMultiplier)
             val remainingSec = if (currentSpeed > 0.05) (remainingMetres / currentSpeed).toLong() else 0L
@@ -324,7 +329,7 @@ private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, on
             Spacer(Modifier.size(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(r.routeName.ifEmpty { "未命名路线" }, style = MaterialTheme.typography.bodySmall, color = sub, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(when (r.routeRepeat) {
+                Text(when (r.repeat.name.lowercase()) {
                     "loop" -> "循环中 · ${(r.progress * 100).toInt()}%"
                     "bounce" -> "往返中 · ${(r.progress * 100).toInt()}%"
                     else -> if (r.routeFinished) "已到达终点"
@@ -373,9 +378,9 @@ private fun StatusHero(s: PortalState, address: String, onToggle: () -> Unit, on
 }
 
 @Composable
-private fun RouteCard(s: PortalState, vm: PortalViewModel, onPickRoute: () -> Unit) {
+private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
     val r = s.runtime
-    val hasRoute = r.route.size >= 2
+    val hasRoute = s.currentRoute.size >= 2
     val routeRunning = r.enabled && r.routeMode
     PortalCard(Modifier.padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -383,34 +388,23 @@ private fun RouteCard(s: PortalState, vm: PortalViewModel, onPickRoute: () -> Un
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (hasRoute) r.routeName.ifEmpty { "未命名路线" } else "未选择路线", style = MaterialTheme.typography.titleSmall)
-                Text(if (hasRoute) "${r.route.size} 个点 · ${formatDistance(app.geoshift.data.routeLength(r.route))}" else "在收藏中选择，或在地图上绘制",
+                Text(if (hasRoute) "${s.currentRoute.size} 个点 · ${formatDistance(Geo.routeLength(s.currentRoute))}" else "在收藏中选择，或在地图上绘制",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton(onClick = onPickRoute) { Text(if (hasRoute) "更换" else "选择") }
         }
         Spacer(Modifier.size(12.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SpeedMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = s.settings.speedMode == mode,
-                    onClick = { vm.run { saveSettings(org.json.JSONObject().put("speedMode", mode.key)) } },
-                    label = { Text(mode.label) },
-                )
-            }
+        Segmented(SpeedMode.entries.map { it.label }, s.settings.speedMode.ordinal) { i ->
+            val mode = SpeedMode.entries[i]
+            if (s.settings.speedMode != mode) vm.run { updateSettings { it.copy(speedMode = mode) } }
         }
         Spacer(Modifier.size(8.dp))
         Text("走到终点后", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.size(4.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            val repeats = listOf("once" to "停在终点", "loop" to "循环", "bounce" to "往返")
-            repeats.forEachIndexed { i, (key, label) ->
-                SegmentedButton(
-                    selected = r.routeRepeat == key,
-                    onClick = { if (r.routeRepeat != key) vm.run { setRouteRepeat(key) } },
-                    shape = SegmentedButtonDefaults.itemShape(i, repeats.size),
-                    label = { Text(label, maxLines = 1) },
-                )
-            }
+        val repeats = listOf(Repeat.ONCE to "停在终点", Repeat.LOOP to "循环", Repeat.BOUNCE to "往返")
+        Segmented(repeats.map { it.second }, repeats.indexOfFirst { it.first == r.repeat }) { i ->
+            val key = repeats[i].first
+            if (r.repeat != key) vm.run { setRepeat(key) }
         }
         Spacer(Modifier.size(6.dp))
         Text(String.format(Locale.ROOT, "约 %.1f km/h（倍率 ×%s），速度自然波动 ±20%%，起步、转弯和到站时减速",
@@ -426,18 +420,22 @@ private fun RouteCard(s: PortalState, vm: PortalViewModel, onPickRoute: () -> Un
 }
 
 private val DIAGNOSTICS = listOf(
-    "location_system" to "系统定位分发", "location_pump" to "持续位置推送", "environment_system" to "应用回调与卫星/基站",
-    "wifi_privacy" to "Wi-Fi 伪装", "cell" to "电话服务基站", "bluetooth" to "蓝牙扫描",
+    "config_system" to "配置同步（系统框架）", "config_phone" to "配置同步（电话服务）", "config_bluetooth" to "配置同步（蓝牙）",
+    "location_system" to "系统定位入口", "location_pump" to "持续位置推送",
+    "location_delivery" to "定位交付改写", "callbacks" to "应用回调与卫星/基站", "wifi" to "Wi-Fi 伪装",
+    "phone" to "电话服务基站", "bluetooth" to "蓝牙扫描", "missing" to "缺失入口（系统框架）", "missing_phone" to "缺失入口（电话服务）",
 )
 
 /** One status line per system entry; folded to a summary by default. */
 @Composable
-private fun Diagnostics(s: PortalState, expanded: Boolean, onToggle: () -> Unit, onOpenSetup: () -> Unit, onCheckIp: () -> Unit) {
+private fun Diagnostics(s: AppState, expanded: Boolean, onToggle: () -> Unit, onOpenSetup: () -> Unit, onCheckIp: () -> Unit) {
     val rows = DIAGNOSTICS.map { (key, title) ->
-        val report = s.featureStatus[key]
+        val report = s.reports[key]
         val status = when {
-            key == "wifi_privacy" && !s.settings.spoofEnvironment && !s.runtime.wifiEnabled -> "未启用"
-            key == "bluetooth" && !s.settings.spoofEnvironment -> "未启用"
+            key == "wifi" && !s.settings.hideEnvironment && !s.runtime.wifiEnabled -> "未启用"
+            key == "bluetooth" && !s.settings.hideEnvironment -> "未启用"
+            report == null && key.startsWith("missing") -> "无"
+            key.startsWith("config") && report == null -> "暂无报告"
             report == null -> "暂无报告"
             report.ok && report.stage == "installed" -> "已安装"
             System.currentTimeMillis() - report.time > 60_000 -> "历史报告"
@@ -445,20 +443,25 @@ private fun Diagnostics(s: PortalState, expanded: Boolean, onToggle: () -> Unit,
             report.stage == "read" -> "已命中"
             report.stage == "injected" -> "已注入"
             report.stage == "waiting" -> "等待中"
+            report.stage == "synced" -> "已同步"
+            report.stage == "stale" -> "已忽略"
             else -> "已安装"
         }
         val details = if (report == null) when (key) {
-            "wifi_privacy" -> "开始模拟后，等待应用读取 Wi-Fi 时报告。"
-            "cell" -> "需勾选「电话服务」并重启；应用查询基站时报告。"
+            "wifi" -> "开始模拟后，等待应用读取 Wi-Fi 时报告。"
+            "phone" -> "需勾选「电话服务」并重启；应用查询基站时报告。"
+            "missing", "missing_phone" -> "所有按名称查找的系统入口都已找到。"
+            "config_system", "config_phone", "config_bluetooth" -> "该进程尚未收到 App 写入的配置。"
+            "location_delivery" -> "开始模拟且有应用接收定位后显示改写次数。"
             "bluetooth" -> "需勾选「蓝牙」并重启；应用扫描蓝牙时报告。"
             "location_pump" -> "开始模拟后显示已发现的提供器及推送成功、失败次数。"
             else -> "尚无系统报告；入口安装与目标应用实际接收需分别验证。"
-        } else listOf(report.detail, report.process.ifEmpty { report.pkg }, formatTime(report.time, "HH:mm:ss"), report.error)
+        } else listOf(report.detail, report.process, formatTime(report.time, "HH:mm:ss"))
             .filter { it.isNotEmpty() }.joinToString(" · ")
         Triple(title, status, details)
     }
     val errors = rows.count { it.second == "出现错误" }
-    val working = rows.count { it.second in setOf("已命中", "已注入", "已安装") }
+    val working = rows.count { it.second in setOf("已命中", "已注入", "已安装", "已同步", "无") }
     SettingGroup {
         SettingRow("系统定位诊断",
             if (errors > 0) "$errors 项出现错误" else "$working / ${rows.size} 项已安装或命中",
@@ -485,7 +488,7 @@ private fun Diagnostics(s: PortalState, expanded: Boolean, onToggle: () -> Unit,
                 SettingRow("出口 IP 校验", "手动检查公网 IP 定位是否与模拟点一致（IP 无法在模块内伪装，差异大时需代理/VPN）",
                     value = "检查", onClick = onCheckIp)
                 RowDivider()
-                SettingRow("检查权限与模块", "作用域勾选系统框架、电话服务和蓝牙后重启", onClick = onOpenSetup)
+                SettingRow("检查权限与模块", "在 Xposed 框架中启用 Geoshift 后重启手机", onClick = onOpenSetup)
             }
         }
     }

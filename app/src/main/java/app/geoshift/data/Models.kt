@@ -1,267 +1,233 @@
 package app.geoshift.data
 
-import org.json.JSONArray
-import org.json.JSONObject
-import app.geoshift.MapSource
+import app.geoshift.core.CellSpec
+import app.geoshift.core.CellType
+import app.geoshift.core.Geo
+import app.geoshift.core.LatLon
+import app.geoshift.core.Repeat
+import app.geoshift.core.RouteAnchor
+import app.geoshift.core.WifiSpec
+import app.geoshift.map.MapSource
+import kotlinx.serialization.Serializable
 
-/** Typed view of [app.geoshift.PortalStore.snapshot]. Raw rows are kept for round-trips. */
-data class PortalState(
-    val version: String,
-    val settings: SettingsState,
-    val runtime: RuntimeState,
-    val caps: Capabilities,
-    val locations: List<SavedLocation>,
-    val routes: List<SavedRoute>,
-    val wifiPresets: List<WifiPreset>,
-    val cellPresets: List<CellPreset>,
-    val environments: List<EnvironmentRecord>,
-    val logs: List<LogEntry>,
-    val featureStatus: Map<String, FeatureStatus>,
+/** User-facing message for a rejected operation. */
+class UserError(message: String) : Exception(message)
+
+fun fail(message: String): Nothing = throw UserError(message)
+
+/** How simulated locations reach apps. */
+enum class Backend(val label: String) {
+    /** Android test providers ("模拟位置信息应用"); no root or Xposed. */
+    MOCK("系统模拟位置"),
+    /** System-wide hooks through an Xposed framework (libxposed API 101+). */
+    XPOSED("Xposed 系统模块"),
+}
+
+enum class SpeedMode(val label: String, val metresPerSecond: Double) {
+    WALK("步行", 1.4), RUN("跑步", 3.0), BIKE("骑行", 6.0), DRIVE("驾驶", 13.9), FLY("飞行", 50.0)
+}
+
+/** How a route section between two tapped points is drawn. [road]: snapped to real roads. */
+enum class RoadProfile(val label: String, val road: Boolean, val osrm: String) {
+    STRAIGHT("直线", false, ""),
+    FOOT("步行", true, "foot"),
+    BIKE("骑行", true, "bike"),
+    CAR("驾车", true, "car"),
+    /** Straight lines between the tapped points, played at flying speed. */
+    FLY("飞行", false, "");
+
+    /** Playback speed that suits a route drawn this way. */
+    val speed: SpeedMode? get() = when (this) {
+        FOOT -> SpeedMode.WALK; BIKE -> SpeedMode.BIKE; CAR -> SpeedMode.DRIVE; FLY -> SpeedMode.FLY; STRAIGHT -> null
+    }
+}
+
+enum class ThemeMode(val label: String) { SYSTEM("跟随系统"), LIGHT("浅色"), DARK("深色") }
+
+@Serializable
+data class Settings(
+    val backend: Backend = Backend.MOCK,
+    val privacyAccepted: Boolean = false,
+    /** Reporting interval, ms. */
+    val interval: Int = 1000,
+    val speedMode: SpeedMode = SpeedMode.WALK,
+    val speedMultiplier: Double = 1.0,
+    val accuracy: Double = 5.0,
+    val altitude: Double = 0.0,
+    val jitter: Boolean = false,
+    /** Test providers: keep reporting while standing still (some apps stop listening otherwise). */
+    val keepReporting: Boolean = true,
+    /** Test providers: report each fix twice (helps apps that drop the first one). */
+    val doubleReport: Boolean = false,
+    /** Xposed: hide the real Wi-Fi, cells, satellites and BLE beacons while simulating. */
+    val hideEnvironment: Boolean = true,
+    val gnss: Boolean = false,
+    val satellites: Int = 12,
+    /** Xposed: only these apps see the simulation. */
+    val onlySelected: Boolean = false,
+    val packages: List<String> = emptyList(),
+    val theme: ThemeMode = ThemeMode.SYSTEM,
+    val mapSource: MapSource = MapSource.AMAP,
+    val mapTipDismissed: Boolean = false,
+    val roadProfile: RoadProfile = RoadProfile.STRAIGHT,
+    val searchHistory: List<String> = emptyList(),
 ) {
-    /** Applies a lightweight [app.geoshift.PortalStore.status] poll (runtime without route). */
-    fun withStatus(status: JSONObject): PortalState {
-        val light = status.optJSONObject("runtime") ?: return this
-        return copy(
-            runtime = RuntimeState.from(light, runtime.route),
-            caps = Capabilities.from(status.optJSONObject("capabilities") ?: JSONObject()),
-            featureStatus = FeatureStatus.mapFrom(status.optJSONObject("featureStatus")),
-        )
-    }
-
-    companion object {
-        fun from(json: JSONObject) = PortalState(
-            version = json.optJSONObject("app")?.optString("version").orEmpty(),
-            settings = SettingsState.from(json.optJSONObject("settings") ?: JSONObject()),
-            runtime = RuntimeState.from(json.optJSONObject("runtime") ?: JSONObject(), null),
-            caps = Capabilities.from(json.optJSONObject("capabilities") ?: JSONObject()),
-            locations = json.optJSONArray("locations").objects().map(SavedLocation::from),
-            routes = json.optJSONArray("routes").objects().map(SavedRoute::from),
-            wifiPresets = json.optJSONArray("wifiPresets").objects().map(WifiPreset::from),
-            cellPresets = json.optJSONArray("cellPresets").objects().map(CellPreset::from),
-            environments = json.optJSONArray("environments").objects().map(EnvironmentRecord::from),
-            logs = json.optJSONArray("logs").objects().map { LogEntry(it.optLong("time"), it.optString("message")) },
-            featureStatus = FeatureStatus.mapFrom(json.optJSONObject("featureStatus")),
-        )
-    }
+    val xposed get() = backend == Backend.XPOSED
+    /** Ground speed for the movement mode and multiplier, m/s. */
+    val speed get() = speedMode.metresPerSecond * speedMultiplier.coerceIn(0.01, 1000.0)
 }
 
-data class LatLon(val lat: Double, val lon: Double) {
-    fun toJson(): JSONObject = JSONObject().put("lat", lat).put("lon", lon)
+enum class SimMode { POINT, ROUTE }
 
-    companion object {
-        fun from(o: JSONObject) = LatLon(o.optDouble("lat"), o.optDouble("lon"))
-    }
-}
-
-enum class SpeedMode(val key: String, val label: String, val metresPerSecond: Double) {
-    WALK("walk", "步行", 1.4), RUN("run", "跑步", 3.0), BIKE("bike", "骑行", 6.0),
-    DRIVE("drive", "驾驶", 13.9), FLY("fly", "飞行", 50.0);
-
-    companion object {
-        fun of(key: String) = entries.firstOrNull { it.key == key } ?: WALK
-    }
-}
-
-data class SettingsState(
-    val backend: String,
-    val interval: Int,
-    val speedMultiplier: Double,
-    val speedMode: SpeedMode,
-    val accuracy: Double,
-    val altitude: Double,
-    val jitter: Boolean,
-    val enhanced: Boolean,
-    val secondReport: Boolean,
-    val debug: Boolean,
-    val privacyAccepted: Boolean,
-    val theme: String,
-    val allowedPackages: String,
-    val gnssEnabled: Boolean,
-    val satelliteCount: Int,
-    val mapKeyConfigured: Boolean,
-    val mapSource: MapSource,
-    val protectWifi: Boolean,
-    /** LSPosed: hide real Wi-Fi, cells and satellites from apps while simulating. */
-    val spoofEnvironment: Boolean,
-    /** "all": every app sees the simulation; "selected": only the apps in allowedPackages. */
-    val appScope: String,
+/** The simulation as it stands. Nothing keeps running across an app process restart. */
+@Serializable
+data class Runtime(
+    val enabled: Boolean = false,
+    val paused: Boolean = false,
+    val mode: SimMode = SimMode.POINT,
+    val position: LatLon = LatLon(39.9042, 116.4074),
+    val bearing: Double = 0.0,
+    val speed: Double = 0.0,
+    val routeId: String = "",
+    val routeName: String = "",
+    val repeat: Repeat = Repeat.ONCE,
+    /** Set while a route plays (see RoutePlan). */
+    val anchor: RouteAnchor? = null,
+    val progress: Double = 0.0,
+    val routeIndex: Int = 0,
+    val joystick: Boolean = false,
+    val error: String = "",
+    val wifiEnabled: Boolean = false,
+    val wifi: WifiSpec? = null,
+    val wifiPresetId: String = "",
+    val cellEnabled: Boolean = false,
+    val cells: List<CellSpec> = emptyList(),
+    val cellPresetId: String = "",
+    val environmentName: String = "",
+    val noiseSeed: Long = 0,
 ) {
-    val lsposed get() = backend == "lsposed"
-    val allowedList get() = allowedPackages.split(Regex("[,\\s]+")).filter { it.isNotBlank() }
-
-    companion object {
-        fun from(o: JSONObject) = SettingsState(
-            backend = o.optString("backend", "android_mock"),
-            interval = o.optInt("interval", 1000),
-            speedMultiplier = o.optDouble("speedMultiplier", 1.0),
-            speedMode = SpeedMode.of(o.optString("speedMode", "walk")),
-            accuracy = o.optDouble("accuracy", 5.0),
-            altitude = o.optDouble("altitude", 0.0),
-            jitter = o.optBoolean("jitter"),
-            enhanced = o.optBoolean("enhanced", true),
-            secondReport = o.optBoolean("secondReport"),
-            debug = o.optBoolean("debug"),
-            privacyAccepted = o.optBoolean("privacyAccepted"),
-            theme = o.optString("theme", "system"),
-            allowedPackages = o.optString("allowedPackages"),
-            gnssEnabled = o.optBoolean("gnssEnabled"),
-            satelliteCount = o.optInt("satelliteCount", 12),
-            mapKeyConfigured = o.optBoolean("mapKeyConfigured"),
-            mapSource = MapSource.fromKey(o.optString("mapSource", "osm")),
-            protectWifi = o.optBoolean("protectWifi"),
-            spoofEnvironment = o.optBoolean("spoofEnvironment", true) || o.optBoolean("protectWifi"),
-            appScope = o.optString("appScope", "all").takeIf { it == "selected" } ?: "all",
-        )
-    }
+    val routeMode get() = mode == SimMode.ROUTE
+    /** Played to the end and holding there; "continue" then starts again. */
+    val routeFinished get() = routeMode && paused && repeat == Repeat.ONCE && progress >= 0.999
 }
 
-data class RuntimeState(
-    val enabled: Boolean,
-    val paused: Boolean,
-    val mode: String,
+// ---- Records ------------------------------------------------------------------------------------
+
+interface Record {
+    val id: String
+    val name: String
+    val createdAt: Long
+}
+
+@Serializable
+data class SavedPlace(
+    override val id: String,
+    override val name: String,
     val position: LatLon,
-    val bearing: Double,
-    val speed: Double,
-    val route: List<LatLon>,
-    val routeName: String,
-    val routeIndex: Int,
-    val progress: Double,
-    val overlay: Boolean,
-    val error: String,
-    val wifiEnabled: Boolean,
-    val wifi: JSONObject,
-    val cellEnabled: Boolean,
-    val cell: JSONObject,
-    val cellCount: Int,
-    val environmentName: String,
-    /** What happens at the end of a route: "once" (stop), "loop" or "bounce" (back and forth). */
-    val routeRepeat: String = "once",
+    val address: String = "",
+    override val createdAt: Long = System.currentTimeMillis(),
+) : Record
+
+@Serializable
+data class SavedRoute(
+    override val id: String,
+    override val name: String,
+    /** What playback follows. */
+    val points: List<LatLon>,
+    /** The tapped points of a road route. */
+    val waypoints: List<LatLon> = emptyList(),
+    val profile: RoadProfile = RoadProfile.STRAIGHT,
+    override val createdAt: Long = System.currentTimeMillis(),
+) : Record {
+    val length by lazy { Geo.routeLength(points) }
+    val waypointCount get() = if (profile.road && waypoints.isNotEmpty()) waypoints.size else points.size
+}
+
+@Serializable
+data class WifiPreset(
+    override val id: String,
+    override val name: String,
+    val ssid: String,
+    val bssid: String,
+    override val createdAt: Long = System.currentTimeMillis(),
+) : Record {
+    val spec get() = WifiSpec(ssid, bssid.lowercase())
+}
+
+@Serializable
+data class CellPreset(
+    override val id: String,
+    override val name: String,
+    val cell: CellSpec,
+    override val createdAt: Long = System.currentTimeMillis(),
+) : Record
+
+/** One access point from a real scan. */
+@Serializable
+data class ScannedWifi(val ssid: String, val bssid: String, val rssi: Int, val frequency: Int)
+
+/** One cell from a real scan; [type] may be one the simulation cannot reproduce (NR, WCDMA, CDMA). */
+@Serializable
+data class ScannedCell(
+    val type: String,
+    val mcc: String = "",
+    val mnc: String = "",
+    val cid: Long? = null,
+    val area: Int? = null,
+    val pci: Int? = null,
+    val channel: Int? = null,
+    val dbm: Int = -85,
+    val registered: Boolean = false,
 ) {
-    val routeMode get() = mode == "route"
-    /** Played to the end and holding there; "continue" means start again from the beginning. */
-    val routeFinished get() = routeMode && paused && routeRepeat == "once" && progress >= 0.999
-
-    companion object {
-        fun from(o: JSONObject, keepRoute: List<LatLon>?) = RuntimeState(
-            enabled = o.optBoolean("enabled"),
-            paused = o.optBoolean("paused"),
-            mode = o.optString("mode", "point"),
-            position = LatLon(o.optDouble("lat", 39.9042), o.optDouble("lon", 116.4074)),
-            bearing = o.optDouble("bearing", 0.0),
-            speed = o.optDouble("speed", 0.0),
-            route = keepRoute ?: o.optJSONArray("route").objects().map(LatLon::from),
-            routeName = o.optString("routeName"),
-            routeIndex = o.optInt("routeIndex"),
-            progress = o.optDouble("progress", 0.0),
-            overlay = o.optBoolean("overlay"),
-            error = o.optString("error"),
-            wifiEnabled = o.optBoolean("wifiEnabled"),
-            wifi = o.optJSONObject("wifi") ?: JSONObject(),
-            cellEnabled = o.optBoolean("cellEnabled"),
-            cell = o.optJSONObject("cell") ?: JSONObject(),
-            cellCount = o.optJSONArray("cells")?.length() ?: 0,
-            environmentName = o.optString("environmentName"),
-            routeRepeat = o.optString("routeRepeat", "once").ifEmpty { "once" },
-        )
+    /** The simulated form, for LTE and GSM cells with complete ids. */
+    fun toSpec(): CellSpec? {
+        val t = when (type) { "LTE" -> CellType.LTE; "GSM" -> CellType.GSM; else -> return null }
+        return CellSpec(t, mcc, mnc, cid ?: return null, area ?: return null, pci ?: 0, channel ?: 0, dbm, registered)
+            .takeIf { Validate.cellOk(it) }
     }
 }
 
-data class Capabilities(
-    val preciseLocation: Boolean,
-    val locationEnabled: Boolean,
-    val notifications: Boolean,
-    val overlay: Boolean,
-    val phoneAvailable: Boolean,
-    val mockSelected: Boolean,
-    val hookActive: Boolean,
-    val systemHook: Boolean,
-    val nearbyWifi: Boolean,
-    val gnssSimulation: Boolean,
-) {
-    companion object {
-        fun from(o: JSONObject) = Capabilities(
-            preciseLocation = o.optBoolean("preciseLocation"),
-            locationEnabled = o.optBoolean("locationEnabled"),
-            notifications = o.optBoolean("notifications"),
-            overlay = o.optBoolean("overlay"),
-            phoneAvailable = o.optBoolean("phoneAvailable"),
-            mockSelected = o.optBoolean("mockSelected"),
-            hookActive = o.optBoolean("hookActive"),
-            systemHook = o.optBoolean("systemHook"),
-            nearbyWifi = o.optBoolean("nearbyWifi"),
-            gnssSimulation = o.optBoolean("gnssSimulation"),
-        )
-    }
-}
+/** A real radio scan saved at a place, to replay later (location + cells + Wi-Fi). */
+@Serializable
+data class EnvironmentRecord(
+    override val id: String,
+    override val name: String,
+    val position: LatLon,
+    override val createdAt: Long = System.currentTimeMillis(),
+    val cells: List<ScannedCell> = emptyList(),
+    val wifi: List<ScannedWifi> = emptyList(),
+    /** Where the phone said it was when scanning, and how far that was from [position]. */
+    val deviceDistance: Double? = null,
+    val note: String = "",
+    val simulatedAtCapture: Boolean = false,
+) : Record
 
-data class SavedLocation(val id: String, val name: String, val position: LatLon, val address: String, val createdAt: Long, val raw: JSONObject) {
-    companion object {
-        fun from(o: JSONObject) = SavedLocation(
-            o.optString("id"), o.optString("name"), LatLon.from(o), o.optString("address"), o.optLong("createdAt"), o)
-    }
-}
-
-data class SavedRoute(val id: String, val name: String, val points: List<LatLon>, val createdAt: Long,
-                      val profile: RoadProfile = RoadProfile.STRAIGHT, val waypointCount: Int = points.size) {
-    val length: Double by lazy { routeLength(points) }
-
-    companion object {
-        fun from(o: JSONObject): SavedRoute {
-            val points = o.optJSONArray("points").objects().map(LatLon::from)
-            val profile = RoadProfile.from(o.optString("profile"))
-            return SavedRoute(o.optString("id"), o.optString("name"), points, o.optLong("createdAt"), profile,
-                if (!profile.road) points.size else o.optJSONArray("waypoints")?.length() ?: points.size)
-        }
-    }
-}
-
-data class WifiPreset(val id: String, val name: String, val ssid: String, val bssid: String, val raw: JSONObject) {
-    companion object {
-        fun from(o: JSONObject) = WifiPreset(o.optString("id"), o.optString("name"), o.optString("ssid"), o.optString("bssid"), o)
-    }
-}
-
-data class CellPreset(val id: String, val name: String, val type: String, val mcc: String, val mnc: String, val raw: JSONObject) {
-    val area get() = if (type == "GSM") raw.opt("lac") else raw.opt("tac")
-    val cid get() = raw.opt("cid") ?: raw.opt("nci")
-
-    companion object {
-        fun from(o: JSONObject) = CellPreset(
-            o.optString("id"), o.optString("name"), o.optString("networkType", "LTE"), o.optString("mcc"), o.optString("mnc"), o)
-    }
-}
-
-data class EnvironmentRecord(val id: String, val name: String, val position: LatLon, val capturedAt: Long,
-                             val cellCount: Int, val wifiCount: Int, val simulated: Boolean, val raw: JSONObject) {
-    companion object {
-        fun from(o: JSONObject) = EnvironmentRecord(
-            o.optString("id"), o.optString("name"), LatLon.from(o), o.optLong("capturedAt", o.optLong("createdAt")),
-            o.optJSONObject("cells")?.optJSONArray("results")?.length() ?: 0,
-            o.optJSONObject("wifi")?.optJSONArray("results")?.length() ?: 0,
-            o.optBoolean("simulationActiveAtCapture"), o)
-    }
-}
-
+@Serializable
 data class LogEntry(val time: Long, val message: String)
 
-data class FeatureStatus(val ok: Boolean, val time: Long, val error: String, val pkg: String,
-                         val stage: String = "read", val detail: String = "", val process: String = "") {
-    companion object {
-        fun mapFrom(o: JSONObject?): Map<String, FeatureStatus> {
-            if (o == null) return emptyMap()
-            return o.keys().asSequence().mapNotNull { key ->
-                o.optJSONObject(key)?.let { key to FeatureStatus(it.optBoolean("ok"), it.optLong("time"), it.optString("error"), it.optString("package"),
-                    it.optString("stage", "read"), it.optString("detail"), it.optString("process")) }
-            }.toMap()
-        }
-    }
-}
+/** One diagnostics report from a hooked process. */
+data class Report(val ok: Boolean, val time: Long, val stage: String, val detail: String, val process: String)
 
-/** A row from a Wi-Fi or cell scan. */
-data class ScanRow(val title: String, val subtitle: String, val raw: JSONObject)
+/** What the device and framework allow right now. */
+data class Capabilities(
+    val preciseLocation: Boolean = false,
+    val locationEnabled: Boolean = false,
+    val notifications: Boolean = false,
+    val overlay: Boolean = false,
+    val phone: Boolean = false,
+    val mockSelected: Boolean = false,
+    val nearbyWifi: Boolean = false,
+    /** An Xposed framework service is bound (module enabled). */
+    val framework: Framework? = null,
+    /** system_server answered a PING within the last minute. */
+    val hookActive: Boolean = false,
+    val gnssSimulation: Boolean = android.os.Build.VERSION.SDK_INT >= 30,
+)
 
-fun JSONArray?.objects(): List<JSONObject> =
-    if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it) }
+data class Framework(val name: String, val version: String, val api: Int, val scope: List<String>, val remote: Boolean)
 
-fun routeLength(points: List<LatLon>): Double =
-    points.zipWithNext { a, b -> app.geoshift.Geo.distance(a.lat, a.lon, b.lat, b.lon) }.sum()
+/** A place from search. */
+data class Place(val name: String, val address: String, val position: LatLon)
+
+/** A row of a real Wi-Fi or cell scan, for pickers. */
+data class ScanRow<T>(val title: String, val subtitle: String, val value: T)

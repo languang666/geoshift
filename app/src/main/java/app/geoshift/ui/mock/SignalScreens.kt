@@ -1,5 +1,14 @@
 package app.geoshift.ui.mock
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.rounded.ArrowBackIos
+import app.geoshift.ui.components.glass
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -62,18 +71,25 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.geoshift.data.CellPreset
-import app.geoshift.data.PortalActions
-import app.geoshift.data.PortalState
+import app.geoshift.data.Place
+import app.geoshift.data.Geoshift
+import app.geoshift.ui.AppState
 import app.geoshift.data.ScanRow
 import app.geoshift.data.WifiPreset
-import app.geoshift.ui.PortalViewModel
+import app.geoshift.ui.AppViewModel
+import app.geoshift.ui.components.Segmented
+import app.geoshift.ui.components.IosSwitch
 import app.geoshift.ui.components.ConfirmDialog
 import app.geoshift.ui.components.EmptyState
 import app.geoshift.ui.components.IconBadge
 import app.geoshift.ui.components.PortalCard
 import app.geoshift.ui.components.SectionTitle
 import app.geoshift.ui.theme.Success
-import org.json.JSONObject
+import app.geoshift.core.CellSpec
+import app.geoshift.core.CellType
+import app.geoshift.data.RecordKind
+import app.geoshift.data.ScannedCell
+import app.geoshift.data.ScannedWifi
 
 /** Shared page skeleton for the Wi-Fi and cell simulation screens. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,15 +104,22 @@ private fun SignalPage(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(title, fontWeight = FontWeight.SemiBold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") } },
-                actions = { TextButton(onClick = onScan) { Icon(Icons.Rounded.Radar, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("扫描") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
+            // iOS navigation bar: blue back button with the previous page's name, centred title, text action.
+            Box(Modifier.fillMaxWidth().statusBarsPadding().height(52.dp).padding(horizontal = 4.dp)) {
+                TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart), contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBackIos, "返回", Modifier.size(20.dp)); Text("控制台", style = MaterialTheme.typography.bodyLarge)
+                }
+                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Center))
+                TextButton(onClick = onScan, modifier = Modifier.align(Alignment.CenterEnd)) { Text("扫描", style = MaterialTheme.typography.bodyLarge) }
+            }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onAdd, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text(addLabel) })
+            Row(Modifier.navigationBarsPadding().glass(CircleShape).clickable(onClick = onAdd).padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(addLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
@@ -113,7 +136,7 @@ private fun SwitchCard(title: String, description: String, checked: Boolean, cur
                 Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(8.dp))
-            Switch(checked = checked, onCheckedChange = onToggle)
+            IosSwitch(checked, onToggle)
         }
         if (current != null) {
             Spacer(Modifier.size(10.dp))
@@ -145,7 +168,7 @@ private fun PresetItem(icon: ImageVector, title: String, subtitle: String, activ
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScanSheet(title: String, rows: List<ScanRow>, icon: ImageVector, onPick: (ScanRow) -> Unit, onDismiss: () -> Unit) {
+private fun <T> ScanSheet(title: String, rows: List<ScanRow<T>>, icon: ImageVector, onPick: (ScanRow<T>) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 24.dp))
         Text("点击条目保存为预设。扫描来自手机系统，刷新频率可能受限。", style = MaterialTheme.typography.bodySmall,
@@ -167,69 +190,69 @@ private fun ScanSheet(title: String, rows: List<ScanRow>, icon: ImageVector, onP
 // ---- Wi-Fi --------------------------------------------------------------------------------------
 
 @Composable
-fun WifiScreen(s: PortalState, vm: PortalViewModel, onBack: () -> Unit) {
+fun WifiScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
     val r = s.runtime
     var editing by remember { mutableStateOf<WifiPreset?>(null) }
-    var creating by remember { mutableStateOf<JSONObject?>(null) }
+    var creating by remember { mutableStateOf<WifiDraft?>(null) }
     var deleting by remember { mutableStateOf<WifiPreset?>(null) }
-    var scan by remember { mutableStateOf<List<ScanRow>?>(null) }
-    val status = s.featureStatus["wifi"]
+    var scan by remember { mutableStateOf<List<ScanRow<ScannedWifi>>?>(null) }
+    val status = s.reports["wifi"]
 
-    SignalPage("WiFi 模拟", onBack, onScan = {
-        vm.toast("扫描WiFi网络中...")
-        vm.run<List<ScanRow>>(onDone = { if (it.isEmpty()) vm.toast("未发现WiFi网络或者未开启WIFI") else scan = it }) { scanWifi() }
-    }, addLabel = "添加WiFi", onAdd = { creating = JSONObject() }) {
+    SignalPage("Wi-Fi 模拟", onBack, onScan = {
+        vm.toast("扫描Wi-Fi网络中...")
+        vm.run<List<ScanRow<ScannedWifi>>>(onDone = { if (it.isEmpty()) vm.toast("未发现Wi-Fi网络或者未开启WIFI") else scan = it }) { scanWifi() }
+    }, addLabel = "添加Wi-Fi", onAdd = { creating = WifiDraft() }) {
         item {
             SwitchCard(
-                "WiFi 模拟", "模拟可以帮助您在不连接到实际WiFi网络的情况下模拟特定的WiFi连接状态。",
+                "Wi-Fi 模拟", "模拟可以帮助您在不连接到实际Wi-Fi网络的情况下模拟特定的Wi-Fi连接状态。",
                 checked = r.wifiEnabled,
-                current = r.wifi.optString("ssid").takeIf { it.isNotEmpty() }?.let { "$it · ${r.wifi.optString("bssid")}" },
-                status = status?.let { "${if (it.ok) "目标已读取" else "目标报告错误"} · ${it.pkg}${if (it.error.isNotEmpty()) " · " + it.error else ""}" },
+                current = r.wifi?.let { "${it.ssid} · ${it.bssid}" },
+                status = status?.let { "${if (it.ok) "系统已替换" else "出现错误"} · ${it.detail}" },
                 statusOk = status?.ok ?: true,
             ) { on -> vm.run(if (on) "模拟已开启" else "模拟已关闭") { setWifiEnabled(on) } }
         }
         item { SectionTitle("预设 · 点击应用") }
-        if (s.wifiPresets.isEmpty()) item { EmptyState(Icons.Rounded.Wifi, "没有WiFi预设", "点击「扫描」添加附近网络，或点击「添加WiFi」手动创建") }
+        if (s.wifiPresets.isEmpty()) item { EmptyState(Icons.Rounded.Wifi, "没有Wi-Fi预设", "点击「扫描」添加附近网络，或点击「添加Wi-Fi」手动创建") }
         items(s.wifiPresets, key = { it.id }) { p ->
             PresetItem(Icons.Rounded.Wifi, p.name, "${p.ssid} · ${p.bssid}",
-                active = r.wifiEnabled && r.wifi.optString("bssid").equals(p.bssid, true) && r.wifi.optString("ssid") == p.ssid,
-                onApply = { vm.run("${p.name} 的WiFi设置已应用") { applyWifiPreset(p.id) } },
+                active = r.wifiEnabled && r.wifi?.bssid.equals(p.bssid, true) && r.wifi?.ssid == p.ssid,
+                onApply = { vm.run("${p.name} 的Wi-Fi设置已应用") { applyWifiPreset(p.id) } },
                 onEdit = { editing = p }, onDelete = { deleting = p })
         }
     }
 
-    val form = editing?.raw ?: creating
+    val form = editing?.let { WifiDraft(it.name, it.ssid, it.bssid) } ?: creating
     if (form != null) {
-        WifiDialog(form, title = if (editing != null) "编辑WiFi" else "添加WiFi", onDismiss = { editing = null; creating = null }) { name, ssid, bssid ->
+        WifiDialog(form, title = if (editing != null) "编辑Wi-Fi" else "添加Wi-Fi", onDismiss = { editing = null; creating = null }) { name, ssid, bssid ->
             val id = editing?.id
             vm.run(if (id != null) "预设已更新" else "预设已添加") { saveWifiPreset(name, ssid, bssid, id) }
         }
     }
     deleting?.let { p ->
-        ConfirmDialog("删除预设", "确定要删除「${p.name}」的WiFi设置吗？", confirm = "删除", danger = true, onDismiss = { deleting = null }) {
-            vm.run("预设已删除") { delete("wifiPresets", p.id) }
+        ConfirmDialog("删除预设", "确定要删除「${p.name}」的Wi-Fi设置吗？", confirm = "删除", danger = true, onDismiss = { deleting = null }) {
+            vm.run("预设已删除") { delete(RecordKind.WIFI, setOf(p.id)) }
         }
     }
     scan?.let { rows ->
-        ScanSheet("扫描到的WiFi网络", rows, Icons.Rounded.Wifi, onPick = { row ->
+        ScanSheet("扫描到的Wi-Fi网络", rows, Icons.Rounded.Wifi, onPick = { row ->
             scan = null
-            creating = JSONObject().put("name", row.title).put("ssid", row.raw.optString("ssid")).put("bssid", row.raw.optString("bssid"))
+            creating = WifiDraft(row.title, row.value.ssid, row.value.bssid)
         }, onDismiss = { scan = null })
     }
 }
 
 @Composable
-private fun WifiDialog(initial: JSONObject, title: String, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
-    var name by remember { mutableStateOf(initial.optString("name")) }
-    var ssid by remember { mutableStateOf(initial.optString("ssid")) }
-    var bssid by remember { mutableStateOf(initial.optString("bssid")) }
+private fun WifiDialog(initial: WifiDraft, title: String, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+    var name by remember { mutableStateOf(initial.name) }
+    var ssid by remember { mutableStateOf(initial.ssid) }
+    var bssid by remember { mutableStateOf(initial.bssid) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID") }, placeholder = { Text("输入WiFi名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID") }, placeholder = { Text("输入Wi-Fi名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(bssid, { bssid = it }, label = { Text("BSSID") }, placeholder = { Text("例如 aa:bb:cc:dd:ee:ff") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
         },
@@ -245,26 +268,26 @@ private fun WifiDialog(initial: JSONObject, title: String, onDismiss: () -> Unit
 // ---- Cell ---------------------------------------------------------------------------------------
 
 @Composable
-fun CellScreen(s: PortalState, vm: PortalViewModel, onBack: () -> Unit) {
+fun CellScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
     val r = s.runtime
     var editing by remember { mutableStateOf<CellPreset?>(null) }
-    var creating by remember { mutableStateOf<JSONObject?>(null) }
+    var creating by remember { mutableStateOf<CellDraft?>(null) }
     var deleting by remember { mutableStateOf<CellPreset?>(null) }
-    var scan by remember { mutableStateOf<List<ScanRow>?>(null) }
-    val status = s.featureStatus["cell"]
+    var scan by remember { mutableStateOf<List<ScanRow<ScannedCell>>?>(null) }
+    val status = s.reports["phone"] ?: s.reports["callbacks"]
 
     SignalPage("基站模拟", onBack, onScan = {
         vm.toast("扫描基站信息中...")
-        vm.run<List<ScanRow>>(onDone = { if (it.isEmpty()) vm.toast("没有找到基站") else scan = it }) { scanCells() }
-    }, addLabel = "添加基站", onAdd = { creating = JSONObject() }) {
+        vm.run<List<ScanRow<ScannedCell>>>(onDone = { if (it.isEmpty()) vm.toast("没有找到基站") else scan = it }) { scanCells() }
+    }, addLabel = "添加基站", onAdd = { creating = CellDraft() }) {
         item {
-            val cell = r.cell
+            val cell = r.cells.firstOrNull()
             SwitchCard(
                 "基站模拟", "为目标应用提供 GSM / LTE 小区信息；不改变手机真实的网络注册。",
                 checked = r.cellEnabled,
-                current = if (cell.has("mcc")) "${cell.optString("networkType", "LTE")} · ${PortalActions.carrier(cell.optString("mcc"), cell.optString("mnc"))} · CID ${cell.opt("cid")}" +
-                        if (r.cellCount > 1) " 等 ${r.cellCount} 个小区" else "" else null,
-                status = status?.let { "${if (it.ok) "目标已读取" else "目标报告错误"} · ${it.pkg}${if (it.error.isNotEmpty()) " · " + it.error else ""}" },
+                current = if (cell != null) "${cell.type} · ${Geoshift.carrier(cell.mcc, cell.mnc)} · CID ${cell.cid}" +
+                        if (r.cells.size > 1) " 等 ${r.cells.size} 个小区" else "" else null,
+                status = status?.let { "${if (it.ok) "系统已替换" else "出现错误"} · ${it.detail}" },
                 statusOk = status?.ok ?: true,
             ) { on -> vm.run(if (on) "基站模拟已开启" else "基站模拟已关闭") { setCellEnabled(on) } }
         }
@@ -272,28 +295,29 @@ fun CellScreen(s: PortalState, vm: PortalViewModel, onBack: () -> Unit) {
         if (s.cellPresets.isEmpty()) item { EmptyState(Icons.Rounded.CellTower, "没有基站预设", "点击「扫描」按钮可扫描并添加附近的基站，或点击「添加基站」按钮添加新的基站预设") }
         items(s.cellPresets, key = { it.id }) { p ->
             PresetItem(Icons.Rounded.CellTower, p.name,
-                "${p.type} · ${PortalActions.carrier(p.mcc, p.mnc)} · ${if (p.type == "GSM") "LAC" else "TAC"} ${p.area} · CID ${p.cid}",
-                active = r.cellEnabled && r.cell.optString("id") == p.id,
+                "${p.cell.type} · ${Geoshift.carrier(p.cell.mcc, p.cell.mnc)} · ${if (p.cell.type == CellType.GSM) "LAC" else "TAC"} ${p.cell.area} · CID ${p.cell.cid}",
+                active = r.cellEnabled && r.cellPresetId == p.id,
                 onApply = { vm.run("${p.name} 的基站设置已应用") { applyCellPreset(p.id) } },
                 onEdit = { editing = p }, onDelete = { deleting = p })
         }
     }
 
-    val form = editing?.raw ?: creating
+    val form = editing?.let { CellDraft.of(it.name, it.cell) } ?: creating
     if (form != null) {
-        CellDialog(form, title = if (editing != null) "编辑基站" else "添加基站", onDismiss = { editing = null; creating = null }) { row ->
-            vm.run(if (editing != null) "基站预设已更新" else "基站预设已添加") { saveCellPreset(row) }
+        val id = editing?.id
+        CellDialog(form, title = if (editing != null) "编辑基站" else "添加基站", onDismiss = { editing = null; creating = null }) { name, cell ->
+            vm.run(if (id != null) "基站预设已更新" else "基站预设已添加") { saveCellPreset(name, cell, id) }
         }
     }
     deleting?.let { p ->
         ConfirmDialog("删除预设", "确定要删除「${p.name}」的基站设置吗？", confirm = "删除", danger = true, onDismiss = { deleting = null }) {
-            vm.run("基站预设已删除") { delete("cellPresets", p.id) }
+            vm.run("基站预设已删除") { delete(RecordKind.CELLS, setOf(p.id)) }
         }
     }
     scan?.let { rows ->
         ScanSheet("扫描到的基站", rows, Icons.Rounded.CellTower, onPick = { row ->
             scan = null
-            creating = JSONObject(row.raw.toString()).put("name", row.title)
+            creating = CellDraft.scanned(row.title, row.value)
         }, onDismiss = { scan = null })
     }
 }
@@ -310,36 +334,27 @@ private val CELL_FIELDS = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CellDialog(initial: JSONObject, title: String, onDismiss: () -> Unit, onSave: (JSONObject) -> Unit) {
-    var type by remember { mutableStateOf(initial.optString("networkType", "LTE").takeIf { it == "GSM" } ?: "LTE") }
-    var name by remember { mutableStateOf(initial.optString("name")) }
+private fun CellDialog(initial: CellDraft, title: String, onDismiss: () -> Unit, onSave: (String, CellSpec) -> Unit) {
+    var type by remember { mutableStateOf(if (initial.type == "GSM") "GSM" else "LTE") }
+    var name by remember { mutableStateOf(initial.name) }
     val values = remember {
         androidx.compose.runtime.mutableStateMapOf(
-            "mcc" to initial.optString("mcc", "460"),
-            "mnc" to initial.optString("mnc", "00"),
-            "area" to (initial.opt(if (type == "GSM") "lac" else "tac") ?: "").toString().let { if (it == "null") "" else it },
-            "cid" to (initial.opt("cid") ?: "").toString().let { if (it == "null") "" else it },
-            "pci" to initial.optString("pci", "0").let { if (it == "null") "0" else it },
-            "channel" to (initial.opt(if (type == "GSM") "arfcn" else "earfcn") ?: "0").toString().let { if (it == "null") "0" else it },
-            "rssi" to initial.optString("rssi", "-85"),
+            "mcc" to initial.mcc, "mnc" to initial.mnc, "area" to initial.area, "cid" to initial.cid,
+            "pci" to initial.pci, "channel" to initial.channel, "rssi" to initial.dbm,
         )
     }
-    val unsupported = initial.has("networkType") && initial.optString("networkType") !in listOf("LTE", "GSM")
+    val unsupported = initial.type !in listOf("LTE", "GSM")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (unsupported) Text("扫描到的 ${initial.optString("networkType")} 小区暂不支持模拟，将按下方选择的类型保存。",
+                if (unsupported) Text("扫描到的 ${initial.type} 小区暂不支持模拟，将按下方选择的类型保存。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 OutlinedTextField(name, { name = it }, label = { Text("名称") }, placeholder = { Text("未命名基站") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf("LTE", "GSM").forEachIndexed { i, t ->
-                        SegmentedButton(selected = type == t, onClick = { type = t }, shape = SegmentedButtonDefaults.itemShape(i, 2)) { Text(t) }
-                    }
-                }
+                Segmented(listOf("LTE", "GSM"), if (type == "GSM") 1 else 0) { type = if (it == 1) "GSM" else "LTE" }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    PortalActions.CARRIERS.forEach { (label, mcc, mnc) ->
+                    Geoshift.CARRIERS.forEach { (label, mcc, mnc) ->
                         FilterChip(selected = values["mcc"] == mcc && values["mnc"] == mnc,
                             onClick = { values["mcc"] = mcc; values["mnc"] = mnc }, label = { Text(label) })
                     }
@@ -357,20 +372,36 @@ private fun CellDialog(initial: JSONObject, title: String, onDismiss: () -> Unit
         confirmButton = {
             TextButton(onClick = {
                 val gsm = type == "GSM"
-                val row = JSONObject()
-                if (initial.has("id")) row.put("id", initial.optString("id"))
-                if (initial.has("createdAt")) row.put("createdAt", initial.optLong("createdAt"))
-                row.put("name", name.ifBlank { "未命名基站" }).put("networkType", type)
-                    .put("mcc", values["mcc"]!!.trim()).put("mnc", values["mnc"]!!.trim())
-                    .put(if (gsm) "lac" else "tac", values["area"]!!.trim().toLongOrNull() ?: -1)
-                    .put("cid", values["cid"]!!.trim().toLongOrNull() ?: -1)
-                    .put(if (gsm) "arfcn" else "earfcn", values["channel"]!!.trim().toIntOrNull() ?: 0)
-                    .put("rssi", values["rssi"]!!.trim().toIntOrNull() ?: -85)
-                    .put("registered", initial.optBoolean("registered", true))
-                if (!gsm) row.put("pci", values["pci"]!!.trim().toIntOrNull() ?: -1)
-                onSave(row); onDismiss()
+                onSave(name.ifBlank { "未命名基站" }, CellSpec(
+                    type = if (gsm) CellType.GSM else CellType.LTE,
+                    mcc = values["mcc"]!!.trim(), mnc = values["mnc"]!!.trim(),
+                    cid = values["cid"]!!.trim().toLongOrNull() ?: -1,
+                    area = values["area"]!!.trim().toIntOrNull() ?: -1,
+                    pci = if (gsm) 0 else values["pci"]!!.trim().toIntOrNull() ?: -1,
+                    channel = values["channel"]!!.trim().toIntOrNull() ?: 0,
+                    dbm = values["rssi"]!!.trim().toIntOrNull() ?: -85,
+                    registered = initial.registered,
+                )); onDismiss()
             }) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+/** Editor contents for a Wi-Fi preset. */
+private data class WifiDraft(val name: String = "", val ssid: String = "", val bssid: String = "")
+
+/** Editor contents for a cell preset, as text fields. */
+private data class CellDraft(
+    val name: String = "", val type: String = "LTE", val mcc: String = "460", val mnc: String = "00", val area: String = "",
+    val cid: String = "", val pci: String = "0", val channel: String = "0", val dbm: String = "-85", val registered: Boolean = true,
+) {
+    companion object {
+        fun of(name: String, c: CellSpec) = CellDraft(name, c.type.name, c.mcc, c.mnc, c.area.toString(), c.cid.toString(),
+            c.pci.toString(), c.channel.toString(), c.dbm.toString(), c.registered)
+
+        fun scanned(name: String, c: ScannedCell) = CellDraft(name, c.type, c.mcc.ifEmpty { "460" }, c.mnc.ifEmpty { "00" },
+            c.area?.toString().orEmpty(), c.cid?.toString().orEmpty(), (c.pci ?: 0).toString(), (c.channel ?: 0).toString(),
+            c.dbm.toString(), c.registered)
+    }
 }

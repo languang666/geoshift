@@ -35,6 +35,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import app.geoshift.ui.components.glass
+import app.geoshift.ui.theme.palette
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -105,15 +107,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.geoshift.Geo
-import app.geoshift.MapSource
-import app.geoshift.PortalStore
-import org.json.JSONObject
-import app.geoshift.data.LatLon
-import app.geoshift.data.PortalActions
-import app.geoshift.data.PortalState
-import app.geoshift.data.routeLength
-import app.geoshift.ui.PortalViewModel
+import app.geoshift.core.Geo
+import app.geoshift.map.MapSource
+import app.geoshift.core.LatLon
+import app.geoshift.data.Place
+import app.geoshift.data.Geoshift
+import app.geoshift.ui.AppState
+import app.geoshift.ui.AppViewModel
 import app.geoshift.ui.components.CoordinateRow
 import app.geoshift.ui.components.InputDialog
 import app.geoshift.ui.components.formatCoord
@@ -128,12 +128,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.ui.platform.LocalContext
 import app.geoshift.data.RoadProfile
-import app.geoshift.data.RoadRouter
+import app.geoshift.data.net.RoadRouter
 
 @Composable
 fun MapScreen(
-    s: PortalState,
-    vm: PortalViewModel,
+    s: AppState,
+    vm: AppViewModel,
     contentPadding: PaddingValues,
     centerRequest: CenterRequest?,
     onCenter: (CenterRequest) -> Unit,
@@ -145,7 +145,7 @@ fun MapScreen(
     var editing by rememberSaveable { mutableStateOf(false) }
     val draft = remember { mutableStateListOf<LatLon>() }
     var query by rememberSaveable { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<PortalActions.Place>>(emptyList()) }
+    var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var saveDialog by remember { mutableStateOf<String?>(null) }
     var routeDialog by remember { mutableStateOf(false) }
     var mapMenu by remember { mutableStateOf(false) }
@@ -157,37 +157,14 @@ fun MapScreen(
     var bottomCardHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     // Everything but the plain OpenStreetMap layer is drawn by MapLibre (sharper, rotatable).
-    val vectorMap = s.settings.mapSource != MapSource.DEFAULT
+    val vectorMap = s.settings.mapSource != MapSource.OSM
     val focus = LocalFocusManager.current
 
-    // Road routes: each section between tapped points is snapped to roads in the background.
-    val appContext = LocalContext.current.applicationContext
-    var searchHistory by remember {
-        mutableStateOf(
-            appContext.getSharedPreferences("portal", Context.MODE_PRIVATE)
-                .getString("map_search_history", "")
-                ?.split("\n")
-                ?.filter { it.isNotBlank() }
-                ?: emptyList()
-        )
-    }
-
+    val searchHistory = s.settings.searchHistory
     val saveSearchHistory: (String) -> Unit = { keyword ->
-        val updated = (listOf(keyword) + searchHistory.filter { it != keyword }).take(6)
-        searchHistory = updated
-        appContext.getSharedPreferences("portal", Context.MODE_PRIVATE)
-            .edit()
-            .putString("map_search_history", updated.joinToString("\n"))
-            .apply()
+        vm.run { store.updateSettings { it.copy(searchHistory = (listOf(keyword) + it.searchHistory.filter { k -> k != keyword }).take(6)) } }
     }
-
-    val clearSearchHistory: () -> Unit = {
-        searchHistory = emptyList()
-        appContext.getSharedPreferences("portal", Context.MODE_PRIVATE)
-            .edit()
-            .remove("map_search_history")
-            .apply()
-    }
+    val clearSearchHistory: () -> Unit = { vm.run { store.updateSettings { it.copy(searchHistory = emptyList()) } } }
 
     val doSearch: (String) -> Unit = { kw ->
         focus.clearFocus()
@@ -199,7 +176,7 @@ fun MapScreen(
             vm.toast("位置搜索需要联网，请先在设置中同意隐私说明")
         } else {
             saveSearchHistory(keyword)
-            vm.run<List<PortalActions.Place>>(onDone = {
+            vm.run<List<Place>>(onDone = {
                 if (searchGeneration == generation && !editing) {
                     results = it
                     if (it.isEmpty()) vm.toast("未找到相关位置，尝试使用不同的关键词搜索")
@@ -207,9 +184,9 @@ fun MapScreen(
             }) { search(keyword, camera.target) }
         }
     }
-    val router = remember { RoadRouter(appContext) }
-    var profileId by rememberSaveable { mutableStateOf(PortalStore.lastRoadProfile(appContext)) }
-    val profile = RoadProfile.from(profileId)
+    // Road routes: each section between tapped points is snapped to roads in the background.
+    val router = vm.engine.router
+    val profile = s.settings.roadProfile
     var roadPath by remember { mutableStateOf<List<LatLon>?>(null) }
     var roadError by remember { mutableStateOf<String?>(null) }
     var roadBusy by remember { mutableStateOf(false) }
@@ -231,7 +208,8 @@ fun MapScreen(
             roadPath = null; roadError = e.message ?: "道路规划失败"; roadBusy = false
         }
     }
-    var tipDismissed by remember { mutableStateOf(PortalStore.mapTipDismissed(appContext)) }
+    val tipDismissed = s.settings.mapTipDismissed
+    val currentRoute = s.currentRoute
     val road = profile.road && roadPath != null
     val editRoute = if (road) roadPath!! else waypoints
     val editAnchors = if (road) waypoints else emptyList()
@@ -255,7 +233,7 @@ fun MapScreen(
     Box(Modifier.fillMaxSize()) {
         if (vectorMap) VectorMap(
             modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled,
-            selected = if (editing) null else selected, route = if (editing) editRoute else r.route,
+            selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
             online = s.settings.privacyAccepted, dark = isDark(s.settings.theme), source = s.settings.mapSource,
             camera = camera, center = centerRequest,
@@ -267,7 +245,7 @@ fun MapScreen(
             virtual = r.position,
             simulating = r.enabled,
             selected = if (editing) null else selected,
-            route = if (editing) editRoute else r.route,
+            route = if (editing) editRoute else currentRoute,
             routeEditing = editing,
             anchors = if (editing) editAnchors else emptyList(),
             online = s.settings.privacyAccepted,
@@ -283,7 +261,7 @@ fun MapScreen(
         Column(Modifier.statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
             AnimatedContent(editing, label = "top") { isEditing ->
                 if (isEditing) {
-                    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.primary, shadowElevation = 4.dp) {
+                    Surface(shape = CircleShape, color = palette.blue, shadowElevation = 8.dp) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Route, null, tint = MaterialTheme.colorScheme.onPrimary)
                             Spacer(Modifier.width(12.dp))
@@ -300,12 +278,7 @@ fun MapScreen(
                 }
             }
             AnimatedVisibility(query.isEmpty() && results.isEmpty() && searchHistory.isNotEmpty() && !editing) {
-                Surface(
-                    Modifier.padding(top = 6.dp).fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                    shadowElevation = 2.dp,
-                ) {
+                Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp), elevation = 6.dp)) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -328,10 +301,10 @@ fun MapScreen(
                                         doSearch(item)
                                     },
                                     label = { Text(item, style = MaterialTheme.typography.bodySmall, maxLines = 1) },
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = CircleShape,
                                     border = null,
                                     colors = SuggestionChipDefaults.suggestionChipColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        containerColor = palette.fill,
                                     ),
                                 )
                             }
@@ -346,12 +319,11 @@ fun MapScreen(
                 MapTip(
                     onSwitch = { mapMenu = true },
                     onKey = { keyDialog = true },
-                    onClose = { tipDismissed = true; PortalStore.dismissMapTip(appContext) },
+                    onClose = { vm.run { store.updateSettings { it.copy(mapTipDismissed = true) } } },
                 )
             }
             AnimatedVisibility(results.isNotEmpty() && !editing) {
-                Surface(Modifier.padding(top = 8.dp).fillMaxWidth(), shape = RoundedCornerShape(20.dp), shadowElevation = 4.dp,
-                    color = MaterialTheme.colorScheme.surface) {
+                Box(Modifier.padding(top = 8.dp).fillMaxWidth().glass(RoundedCornerShape(26.dp))) {
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         items(results) { place ->
                             Row(Modifier.fillMaxWidth().clickable {
@@ -403,7 +375,7 @@ fun MapScreen(
                                 onClick = {
                                     mapMenu = false
                                     if (source != s.settings.mapSource) vm.run("已切换至${source.label}") {
-                                        saveSettings(JSONObject().put("mapSource", source.key))
+                                        updateSettings { it.copy(mapSource = source) }
                                     }
                                 })
                         }
@@ -423,8 +395,8 @@ fun MapScreen(
                     editing = !editing
                 }
                 ToolDivider()
-                MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.overlay) {
-                    vm.run(if (r.overlay) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { overlay(!r.overlay) }
+                MapTool(Icons.Rounded.SportsEsports, "摇杆", active = r.joystick) {
+                    vm.run(if (r.joystick) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { joystick(!r.joystick) }
                 }
             }
             ToolGroup {
@@ -458,7 +430,7 @@ fun MapScreen(
             when (m) {
                 2 -> RouteEditorCard(
                     count = draft.size,
-                    length = routeLength(editRoute),
+                    length = Geo.routeLength(editRoute),
                     profile = profile,
                     roadStatus = when {
                         profile == RoadProfile.FLY -> "点与点之间直线飞行，按飞行速度播放"
@@ -469,7 +441,7 @@ fun MapScreen(
                         else -> "已沿${router.source}道路连接"
                     },
                     roadFailed = roadError != null,
-                    onProfile = { profileId = it.id; PortalStore.setLastRoadProfile(appContext, it.id) },
+                    onProfile = { p -> vm.run { store.updateSettings { it.copy(roadProfile = p) } } },
                     onUndo = { if (draft.isNotEmpty()) draft.removeAt(draft.lastIndex) },
                     onClear = { draft.clear() },
                     onSave = {
@@ -485,7 +457,7 @@ fun MapScreen(
                 1 -> if (sel != null) PreviewCard(
                     point = sel,
                     address = address,
-                    distance = Geo.distance(sel.lat, sel.lon, r.position.lat, r.position.lon),
+                    distance = Geo.distance(sel, r.position),
                     running = r.enabled,
                     onClose = { selected = null },
                     onSetVirtual = {
@@ -504,7 +476,7 @@ fun MapScreen(
                 )
                 else -> StatusCard(s, onToggle = {
                     if (r.enabled) vm.run("模拟定位已关闭") { stop() }
-                    else vm.run("模拟定位已开启") { if (r.routeMode && r.route.size >= 2) startRoute() else startPoint() }
+                    else vm.run("模拟定位已开启") { if (r.routeMode && currentRoute.size >= 2) startRoute() else startPoint() }
                 }, onPause = { vm.run(if (r.routeFinished) "路线重新开始" else if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
                     onOpenSetup = onOpenSetup,
                     onCopyCoord = { vm.toast("虚拟坐标已复制到剪贴板") })
@@ -520,11 +492,11 @@ fun MapScreen(
         )
     }
 
-    if (keyDialog) MapKeyDialog(configured = s.settings.mapKeyConfigured, onDismiss = { keyDialog = false }, onMessage = vm::toast,
+    if (keyDialog) MapKeyDialog(configured = s.mapKeyConfigured, onDismiss = { keyDialog = false }, onMessage = vm::toast,
         onTest = { vm.run<String>(onDone = vm::toast) { checkMapKey() } },
         onSave = { key ->
             vm.run(if (key.isEmpty()) "已清除高德 Key" else "高德 Key 已保存，搜索和地址将使用高德数据") {
-                saveSettings(JSONObject().put("mapKey", key))
+                setMapKey(key)
             }
         })
 
@@ -533,7 +505,7 @@ fun MapScreen(
         InputDialog("添加到历史", initial = suggestion.ifEmpty { "未命名位置" }, label = "名称",
             hint = if (suggestion.isNotEmpty()) "名称建议：$suggestion" else null,
             onDismiss = { saveDialog = null }) { name ->
-            if (p != null) vm.run<String>("位置已成功添加到历史记录") { saveLocation(name, p, address) }
+            if (p != null) vm.run<String>("位置已成功添加到历史记录") { savePlace(name, p, address) }
         }
     }
     if (routeDialog) {
@@ -542,14 +514,14 @@ fun MapScreen(
         val kind = profile
         val title = when {
             kind == RoadProfile.STRAIGHT -> "路线 ${via.size} 点"
-            else -> "${kind.label}路线 ${formatDistance(routeLength(points))}"
+            else -> "${kind.label}路线 ${formatDistance(Geo.routeLength(points))}"
         }
         InputDialog("保存路线", initial = title, label = "名称",
             hint = (when {
                 kind == RoadProfile.FLY -> "飞行 · ${via.size} 个途经点"
                 !kind.road -> "共 ${via.size} 个点"
                 else -> "沿道路${kind.label} · ${via.size} 个途经点"
-            }) + " · ${formatDistance(routeLength(points))}路线",
+            }) + " · ${formatDistance(Geo.routeLength(points))}路线",
             onDismiss = { routeDialog = false }) { name ->
             vm.run<String>("路线保存成功", onDone = { editing = false; draft.clear() }) { saveRoute(name, points, via, kind) }
         }
@@ -560,9 +532,8 @@ fun MapScreen(
 @Composable
 private fun MapTip(onSwitch: () -> Unit, onKey: () -> Unit, onClose: () -> Unit) {
     val link = MaterialTheme.typography.labelMedium
-    Surface(Modifier.padding(top = 6.dp), shape = RoundedCornerShape(50), shadowElevation = 1.dp,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)) {
-        Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.padding(top = 8.dp).glass(CircleShape, elevation = 6.dp)) {
+        Row(Modifier.padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("地图不显示？", style = link, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("换个图层", style = link, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable(onClick = onSwitch).padding(horizontal = 4.dp, vertical = 6.dp))
@@ -578,12 +549,12 @@ private fun MapTip(onSwitch: () -> Unit, onKey: () -> Unit, onClose: () -> Unit)
 
 @Composable
 private fun SearchBar(query: String, onQuery: (String) -> Unit, onSearch: () -> Unit, onClear: () -> Unit) {
-    Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 3.dp, color = MaterialTheme.colorScheme.surface) {
+    Box(Modifier.glass(CircleShape)) {
         TextField(
             value = query,
             onValueChange = onQuery,
             placeholder = { Text("搜索地点、地址或坐标", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
             trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = onClear) { Icon(Icons.Rounded.Close, "清除") } },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -600,14 +571,12 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, onSearch: () -> 
 /** Rounded floating group holding one or more map tools. */
 @Composable
 private fun ToolGroup(content: @Composable () -> Unit) {
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 3.dp) {
-        Column { content() }
-    }
+    Column(Modifier.glass(RoundedCornerShape(24.dp)).padding(vertical = 2.dp)) { content() }
 }
 
 @Composable
 private fun ToolDivider() =
-    HorizontalDivider(Modifier.width(48.dp).padding(horizontal = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    HorizontalDivider(Modifier.width(48.dp).padding(horizontal = 12.dp), thickness = 0.5.dp, color = palette.separator)
 
 @Composable
 private fun MapTool(
@@ -618,12 +587,12 @@ private fun MapTool(
     onClick: () -> Unit,
 ) {
     Box(
-        Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick)
-            .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent),
+        Modifier.size(48.dp).padding(3.dp).clip(CircleShape).clickable(onClick = onClick)
+            .background(if (active) palette.blue else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, description, modifier = iconModifier.size(22.dp),
-            tint = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+            tint = if (active) Color.White else MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -655,11 +624,9 @@ private fun MapCompass(
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             onClick()
         },
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 3.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.size(48.dp),
+        shape = CircleShape,
+        color = Color.Transparent,
+        modifier = modifier.size(48.dp).glass(CircleShape),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Canvas(
@@ -729,23 +696,16 @@ private fun MapCompass(
 
 @Composable
 private fun BottomCard(content: @Composable () -> Unit) {
-    Surface(
-        Modifier.fillMaxWidth().animateContentSize(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp
-    ) {
-        Column(Modifier.padding(18.dp)) { content() }
-    }
+    Column(Modifier.fillMaxWidth().animateContentSize().glass(RoundedCornerShape(32.dp), elevation = 18.dp).padding(20.dp)) { content() }
 }
 
 /** Idle / running panel: state and position on the left, one round start-stop button on the right. */
 @Composable
-private fun StatusCard(s: PortalState, onToggle: () -> Unit, onPause: () -> Unit, onOpenSetup: () -> Unit, onCopyCoord: () -> Unit) {
+private fun StatusCard(s: AppState, onToggle: () -> Unit, onPause: () -> Unit, onOpenSetup: () -> Unit, onCopyCoord: () -> Unit) {
     val r = s.runtime
     val haptic = LocalHapticFeedback.current
     val ready = s.settings.privacyAccepted && s.caps.preciseLocation &&
-            (if (s.settings.lsposed) s.caps.hookActive else s.caps.mockSelected)
+            (if (s.settings.xposed) s.caps.hookActive else s.caps.mockSelected)
     val live = MaterialTheme.colorScheme.tertiary
     BottomCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -867,8 +827,8 @@ private fun PreviewCard(
                 }
                 FilledTonalButton(onClick = onSetVirtual, modifier = Modifier.weight(1f)) { Text("设为位置", maxLines = 1) }
             }
-            FilledTonalButton(onClick = onRouteTo, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                Icon(Icons.Rounded.Directions, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("去这里", maxLines = 1)
+            FilledTonalButton(onClick = onRouteTo, contentPadding = PaddingValues(horizontal = 14.dp)) {
+                Icon(Icons.Rounded.Directions, "规划去这里的路线", Modifier.size(20.dp))
             }
             OutlinedButton(onClick = onSave, contentPadding = PaddingValues(horizontal = 12.dp)) {
                 Icon(Icons.Rounded.Add, "添加到历史", Modifier.size(20.dp))

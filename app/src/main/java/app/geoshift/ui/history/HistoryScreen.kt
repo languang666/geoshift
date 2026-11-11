@@ -76,10 +76,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.geoshift.data.LatLon
-import app.geoshift.data.PortalState
+import app.geoshift.core.LatLon
+import app.geoshift.ui.AppState
 import app.geoshift.data.RoadProfile
-import app.geoshift.ui.PortalViewModel
+import app.geoshift.ui.AppViewModel
+import app.geoshift.ui.components.Segmented
+import app.geoshift.ui.components.IosSwitch
 import app.geoshift.ui.components.ConfirmDialog
 import app.geoshift.ui.components.EmptyState
 import app.geoshift.ui.components.IconBadge
@@ -100,8 +102,8 @@ private data class HistoryRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
-    s: PortalState,
-    vm: PortalViewModel,
+    s: AppState,
+    vm: AppViewModel,
     contentPadding: PaddingValues,
     initialTab: Int,
     onShowOnMap: (LatLon) -> Unit,
@@ -132,7 +134,7 @@ fun HistoryScreen(
     }
 
     val rows = when (tab) {
-        0 -> s.locations.map {
+        0 -> s.places.map {
             HistoryRow("locations", it.id, it.name, it.address.ifEmpty { formatCoord(it.position.lat, it.position.lon) }, it.createdAt, Icons.Rounded.Place, it.position)
         }
         1 -> s.routes.map {
@@ -143,8 +145,8 @@ fun HistoryScreen(
             }, it.createdAt, Icons.Rounded.Route, it.points.firstOrNull())
         }
         else -> s.environments.map {
-            HistoryRow("environments", it.id, it.name, "基站 ${it.cellCount} · Wi-Fi ${it.wifiCount}${if (it.simulated) " · 采集时模拟开启" else ""}",
-                it.capturedAt, Icons.Rounded.Radar, it.position)
+            HistoryRow("environments", it.id, it.name, "基站 ${it.cells.size} · Wi-Fi ${it.wifi.size}${if (it.simulatedAtCapture) " · 采集时模拟开启" else ""}",
+                it.createdAt, Icons.Rounded.Radar, it.position)
         }
     }.filter { query.isBlank() || it.name.contains(query, true) || it.detail.contains(query, true) }
         .let { list ->
@@ -196,22 +198,17 @@ fun HistoryScreen(
                 }
             }
         }
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-            val tabs = listOf("位置" to s.locations.size, "路线" to s.routes.size, "环境" to s.environments.size)
-            tabs.forEachIndexed { i, (label, n) ->
-                SegmentedButton(selected = tab == i, onClick = { tab = i }, shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
-                    label = { Text(if (n > 0) "$label $n" else label) })
-            }
-        }
+        val tabs = listOf("位置" to s.places.size, "路线" to s.routes.size, "环境" to s.environments.size)
+        Segmented(tabs.map { (label, n) -> if (n > 0) "$label $n" else label }, tab, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { tab = it }
         TextField(
             value = query, onValueChange = { query = it },
             placeholder = { Text(when (tab) { 1 -> "搜索路线"; 2 -> "搜索环境记录"; else -> "搜索位置" }) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "清除") } },
-            singleLine = true, shape = RoundedCornerShape(16.dp),
+            singleLine = true, shape = RoundedCornerShape(12.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedContainerColor = app.geoshift.ui.theme.palette.fill,
+                unfocusedContainerColor = app.geoshift.ui.theme.palette.fill,
                 focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                 unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
             ),
@@ -301,7 +298,7 @@ fun HistoryScreen(
                             close(); vm.run<String>(onDone = { vm.toast(it) }) { applyEnvironment(row.id) }
                         }
                         SheetAction(Icons.Rounded.Search, "查看详情") {
-                            close(); detail = s.environments.firstOrNull { it.id == row.id }?.raw?.toString(2)
+                            close(); detail = s.environments.firstOrNull { it.id == row.id }?.let { environmentText(it) }
                         }
                     }
                 }
@@ -314,7 +311,7 @@ fun HistoryScreen(
         val what = when (row.key) { "locations" -> "位置"; "routes" -> "路线"; else -> "环境记录" }
         ConfirmDialog("删除$what", "您确定要删除「${row.name}」吗？此操作无法撤销。", confirm = "删除", danger = true,
             onDismiss = { confirmDelete = null }) {
-            vm.run("${what}已成功删除") { delete(row.key, row.id) }
+            vm.run("${what}已成功删除") { delete(kindOf(row.key), setOf(row.id)) }
         }
     }
     // Search or sort can hide selected rows; only visible rows stay selected (and get deleted).
@@ -337,13 +334,13 @@ fun HistoryScreen(
             selectedIds = emptySet()
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             vm.run("已成功删除 ${count} 项$what") {
-                ids.forEach { delete(key, it) }
+                delete(kindOf(key), ids.toSet())
             }
         }
     }
     rename?.let { row ->
         InputDialog("重命名", initial = row.name, label = "名称", onDismiss = { rename = null }) { name ->
-            vm.run("已重命名") { renameLocation(row.id, name) }
+            vm.run("已重命名") { renamePlace(row.id, name) }
         }
     }
     detail?.let { text ->
@@ -402,4 +399,26 @@ private fun SheetAction(icon: ImageVector, text: String, danger: Boolean = false
         colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
         modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 8.dp),
     )
+}
+
+private fun kindOf(key: String) = when (key) {
+    "locations" -> app.geoshift.data.RecordKind.PLACES
+    "routes" -> app.geoshift.data.RecordKind.ROUTES
+    else -> app.geoshift.data.RecordKind.ENVIRONMENTS
+}
+
+/** Readable summary of an environment record for the details dialog. */
+private fun environmentText(e: app.geoshift.data.EnvironmentRecord): String = buildString {
+    appendLine("${e.name}")
+    appendLine("坐标 ${formatCoord(e.position.lat, e.position.lon)}")
+    e.deviceDistance?.let { appendLine("采集时设备距此 ${formatDistance(it)}") }
+    if (e.note.isNotEmpty()) appendLine(e.note)
+    appendLine()
+    appendLine("基站 ${e.cells.size} 个")
+    e.cells.forEach { c ->
+        appendLine("· ${c.type} ${app.geoshift.data.Geoshift.carrier(c.mcc, c.mnc)} ${if (c.type == "GSM") "LAC" else "TAC"} ${c.area ?: "-"} CID ${c.cid ?: "-"} ${c.dbm} dBm${if (c.registered) " 已注册" else ""}")
+    }
+    appendLine()
+    appendLine("Wi-Fi ${e.wifi.size} 个")
+    e.wifi.forEach { w -> appendLine("· ${w.ssid.ifEmpty { "未命名" }} ${w.bssid} ${w.rssi} dBm ${w.frequency} MHz") }
 }

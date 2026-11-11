@@ -1,4 +1,1 @@
-# Marker only. Geoshift is loaded through the legacy entry in assets/xposed_init:
-# LSPosed falls back to it when this list names no class, and Vector does so while
-# targetApiVersion stays below 101. The marker lets both managers read module.prop,
-# which is where staticScope lives.
+app.geoshift.xposed.Module

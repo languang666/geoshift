@@ -47,17 +47,19 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.geoshift.R
-import app.geoshift.data.PortalState
-import app.geoshift.ui.PortalViewModel
+import app.geoshift.ui.AppState
+import app.geoshift.ui.AppViewModel
+import app.geoshift.ui.components.Segmented
+import app.geoshift.ui.components.IosSwitch
 import app.geoshift.ui.components.PortalCard
 import app.geoshift.ui.theme.Success
-import org.json.JSONObject
+import app.geoshift.data.Backend
 
 /** Permission / settings targets the activity knows how to open. */
 enum class SystemTarget { LOCATION_PERMISSION, NOTIFICATION_PERMISSION, WIFI_PERMISSION, OVERLAY, MOCK_APP, LOCATION_SWITCH, LSPOSED, APP_DETAILS }
 
 @Composable
-fun SetupScreen(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> Unit, onBack: (() -> Unit)?, onDone: () -> Unit) {
+fun SetupScreen(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onBack: (() -> Unit)?, onDone: () -> Unit) {
     val accepted = s.settings.privacyAccepted
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())
@@ -88,7 +90,7 @@ fun SetupScreen(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> U
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.size(16.dp))
-                Button(onClick = { vm.run<Unit> { saveSettings(JSONObject().put("privacyAccepted", true)) } }, modifier = Modifier.fillMaxWidth(),
+                Button(onClick = { vm.run<Unit> { updateSettings { it.copy(privacyAccepted = true) } } }, modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 14.dp)) { Text("同意并继续") }
             }
             return@Column
@@ -107,39 +109,38 @@ fun SetupScreen(s: PortalState, vm: PortalViewModel, onOpen: (SystemTarget) -> U
 
         Step(2, "模拟模式", "选择一种工作方式")
         PortalCard(Modifier.padding(horizontal = 16.dp)) {
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                listOf("android_mock" to "标准模拟", "lsposed" to "LSPosed").forEachIndexed { i, (key, label) ->
-                    SegmentedButton(selected = s.settings.backend == key, shape = SegmentedButtonDefaults.itemShape(i, 2),
-                        onClick = { if (s.settings.backend != key) vm.run<Unit>("已切换模拟类型") { saveSettings(JSONObject().put("backend", key)) } }) { Text(label) }
-                }
+            val backends = listOf(Backend.MOCK to "标准模拟", Backend.XPOSED to "Xposed")
+            Segmented(backends.map { it.second }, backends.indexOfFirst { it.first == s.settings.backend }) { i ->
+                val key = backends[i].first
+                if (s.settings.backend != key) vm.run<Unit>("已切换模拟类型") { updateSettings { it.copy(backend = key) } }
             }
             Spacer(Modifier.size(14.dp))
-            if (!s.settings.lsposed) {
+            if (!s.settings.xposed) {
                 Guide(1, "打开系统「开发者选项」（在关于手机中连续点击版本号可开启）", null)
                 Guide(2, "找到「选择模拟位置信息应用」，选择 Geoshift", s.caps.mockSelected)
                 Spacer(Modifier.size(8.dp))
                 FilledTonalButton(onClick = { onOpen(SystemTarget.MOCK_APP) }, modifier = Modifier.fillMaxWidth()) { Text("打开开发者选项") }
             } else {
-                Guide(1, "打开 LSPosed 管理器（新版名为 Vector；从通知栏的常驻通知、桌面快捷方式进入，或在拨号盘输入 *#*#5776733#*#*）。", null)
-                Guide(2, "在「模块」中找到 Geoshift，打开启用开关。", null)
-                Guide(3, "勾选「系统框架」「电话服务」和「蓝牙」即可，不需要勾选目标应用。", null)
-                Guide(4, "重启手机，回到这里点「重新检查」。", s.caps.hookActive)
+                Guide(1, "安装支持 libxposed API 101+ 的框架（如 Vector）。原版 LSPosed 1.x 不支持 Geoshift 3。", s.caps.framework?.let { it.api >= 101 })
+                Guide(2, "在框架管理器的「模块」中启用 Geoshift。作用域已固定为系统框架、电话服务和蓝牙，无需手动勾选。", s.caps.framework != null)
+                Guide(3, "重启手机，回到这里点「重新检查」。", s.caps.hookActive)
                 Spacer(Modifier.size(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FilledTonalButton(onClick = { onOpen(SystemTarget.LSPOSED) }, modifier = Modifier.weight(1f)) { Text("打开LSPosed管理器") }
-                    OutlinedButton(onClick = { vm.run<Boolean>(onDone = { vm.toast(if (it) "LSPosed 模块已连接" else "未检测到LSPosed，请确认已勾选系统框架并重启") }) { checkHook() } }) { Text("重新检查") }
+                    FilledTonalButton(onClick = { onOpen(SystemTarget.LSPOSED) }, modifier = Modifier.weight(1f)) { Text("打开框架管理器") }
+                    OutlinedButton(onClick = { vm.run<Boolean>(onDone = { vm.toast(if (it) "系统模块运行中" else "系统模块未运行：请确认已在框架中启用 Geoshift 并重启") }) { capabilities().hookActive } }) { Text("重新检查") }
                 }
                 Spacer(Modifier.size(10.dp))
                 Text(
                     when {
-                        s.caps.systemHook -> "✓ 系统框架定位入口已安装；可在「控制台 → 系统诊断」查看各入口状态。"
-                        s.caps.hookActive -> "模块已连接，系统定位入口尚未确认。请检查系统兼容性和 LSPosed 模块日志。"
-                        else -> "模块尚未连接。"
+                        s.caps.hookActive -> "✓ 系统模块运行中（${s.caps.framework?.let { "${it.name} ${it.version} · API ${it.api}" } ?: "框架信息不可用"}）；可在「控制台 → 系统诊断」查看各入口状态。"
+                        s.caps.framework != null -> "已连接框架 ${s.caps.framework.name} ${s.caps.framework.version}（API ${s.caps.framework.api}），系统模块尚未运行，请重启手机。" +
+                            if (s.caps.framework.api < 101) "该框架 API 版本过低。" else if (!s.caps.framework.remote) "该框架不支持远程配置。" else ""
+                        else -> "尚未连接到 Xposed 框架。"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (s.caps.systemHook) Success else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (s.caps.hookActive) Success else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text("更改作用域后重启手机。模拟期间系统会对所有应用伪装定位、Wi-Fi、基站和卫星（可在设置中关闭环境伪装）。部分设备的接口可能不同，实际效果需要逐项验证。\n不要在作用域里勾选普通应用：系统层已经覆盖所有应用，在应用里注入反而更容易被检测。",
+                Text("模拟期间系统会对所有应用伪装定位、Wi-Fi、基站和卫星（可在设置中关闭环境伪装）。部分设备的接口可能不同，实际效果需要逐项验证。系统层已覆盖所有应用，不需要也无法在普通应用里注入。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
