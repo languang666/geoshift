@@ -61,7 +61,6 @@
 geoshift/
   source/      本仓库
   releases/    构建产物 Geoshift-<版本>.apk、GeoProbe.apk
-  reference/   对照用的原版 PortalDev 安装包（不入库）
   android/     sdk/（Android SDK）、avd/（测试模拟器 portaltest）
   signing/     签名私钥（仅 root 可读，不入库）
 ```
