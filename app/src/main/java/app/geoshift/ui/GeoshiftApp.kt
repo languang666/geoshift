@@ -1,6 +1,19 @@
 package app.geoshift.ui
 
 import android.app.Activity
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.glass.GlassStyle
+import dev.chrisbanes.haze.glass.hazeGlass
+import kotlin.math.roundToInt
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -177,11 +190,13 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
             }
             Page.MAIN -> {
                 val openSetup = { page = Page.SETUP }
+                val hazeState = rememberHazeState()
                 // Content runs edge to edge and scrolls under the floating tab bar.
                 val nav = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val padding = PaddingValues(bottom = nav + TAB_BAR_HEIGHT + 16.dp)
                 Box(Modifier.fillMaxSize()) {
                     AnimatedContent(
+                        modifier = Modifier.hazeSource(hazeState),
                         targetState = tab,
                         transitionSpec = {
                             fadeIn(animationSpec = androidx.compose.animation.core.tween(180)) togetherWith
@@ -206,7 +221,7 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
                             .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
                     )
                     SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = nav + TAB_BAR_HEIGHT + 20.dp))
-                    TabBar(tab, s.runtime.enabled, Modifier.align(Alignment.BottomCenter).padding(bottom = nav + 8.dp)) { tab = it }
+                    TabBar(tab, s.runtime.enabled, hazeState, isDark(s.settings.theme), Modifier.align(Alignment.BottomCenter).padding(bottom = nav + 8.dp)) { tab = it }
                 }
             }
         }
@@ -215,31 +230,67 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
 
 private val TAB_BAR_HEIGHT = 64.dp
 
-/** Floating glass tab bar (iOS 26): a capsule over the content; the selected tab sits in a lighter lens. */
+/** Floating glass capsule with a draggable, spring-animated selection. */
 @Composable
-private fun TabBar(selected: Tab, simulating: Boolean, modifier: Modifier = Modifier, onSelect: (Tab) -> Unit) {
+private fun TabBar(selected: Tab, simulating: Boolean, hazeState: dev.chrisbanes.haze.HazeState, dark: Boolean, modifier: Modifier = Modifier, onSelect: (Tab) -> Unit) {
     val p = palette
-    Row(
-        modifier.padding(horizontal = 22.dp).fillMaxWidth().height(TAB_BAR_HEIGHT).glass(CircleShape, elevation = 16.dp).padding(5.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val glassStyle = GlassStyle.regular.then {
+        tint(if (dark) Color.Black.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.22f))
+        shape(CircleShape)
+    }
+    BoxWithConstraints(
+        modifier.padding(horizontal = 22.dp).fillMaxWidth().height(TAB_BAR_HEIGHT)
+            .hazeGlass(input = HazeInput.Sources(hazeState), style = glassStyle).padding(5.dp),
     ) {
-        Tab.entries.forEach { t ->
-            val on = t == selected
-            val tint = if (on) p.blue else MaterialTheme.colorScheme.onSurface
-            Column(
-                Modifier.weight(1f).fillMaxHeight().clip(CircleShape)
-                    .background(if (on) p.fill else Color.Transparent)
-                    .clickable { onSelect(t) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Box {
-                    Icon(t.icon, null, tint = tint, modifier = Modifier.size(25.dp))
-                    // The console tab carries a green dot while anything is being simulated.
-                    if (t == Tab.MOCK && simulating) Box(Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp)
-                        .size(9.dp).clip(CircleShape).background(p.green))
+        val density = LocalDensity.current
+        val itemWidth = maxWidth / Tab.entries.size
+        val itemWidthPx = with(density) { itemWidth.toPx() }
+        var dragPosition by remember { mutableStateOf<Float?>(null) }
+        val position by animateFloatAsState(
+            targetValue = dragPosition ?: selected.ordinal.toFloat(),
+            animationSpec = spring(dampingRatio = 0.68f, stiffness = 500f), label = "tab lens",
+        )
+        Box(
+            Modifier.offset { IntOffset((position * itemWidthPx).roundToInt(), 0) }
+                .size(width = itemWidth, height = TAB_BAR_HEIGHT - 10.dp)
+                .hazeGlass(input = HazeInput.Sources(hazeState), style = GlassStyle.regular.then {
+                    shape(CircleShape)
+                    tint(if (dark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.42f))
+                }),
+        )
+        Row(
+            Modifier.fillMaxSize().pointerInput(itemWidthPx, selected) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragPosition = selected.ordinal.toFloat() },
+                    onHorizontalDrag = { change, amount ->
+                        change.consume()
+                        dragPosition = ((dragPosition ?: selected.ordinal.toFloat()) + amount / itemWidthPx)
+                            .coerceIn(0f, (Tab.entries.size - 1).toFloat())
+                    },
+                    onDragEnd = {
+                        dragPosition?.let { onSelect(Tab.entries[it.roundToInt()]) }
+                        dragPosition = null
+                    },
+                    onDragCancel = { dragPosition = null },
+                )
+            },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Tab.entries.forEach { t ->
+                val on = t == selected
+                val tint = if (on) p.blue else MaterialTheme.colorScheme.onSurface
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().clip(CircleShape).clickable { onSelect(t) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Box {
+                        Icon(t.icon, null, tint = tint, modifier = Modifier.size(25.dp))
+                        if (t == Tab.MOCK && simulating) Box(Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp)
+                            .size(9.dp).clip(CircleShape).background(p.green))
+                    }
+                    Text(t.label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = tint, maxLines = 1)
                 }
-                Text(t.label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = tint, maxLines = 1)
             }
         }
     }

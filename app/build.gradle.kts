@@ -13,8 +13,8 @@ android {
         applicationId = "app.geoshift"
         minSdk = 26
         targetSdk = 35
-        versionCode = 40
-        versionName = "3.0.0"
+        versionCode = 41
+        versionName = "3.0.1"
         // Native map code is per ABI. Phones are ARM; build with -Pemulator to add x86_64 for the emulator.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -55,6 +55,7 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
+    implementation("dev.chrisbanes.haze:haze-glass:2.1.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
