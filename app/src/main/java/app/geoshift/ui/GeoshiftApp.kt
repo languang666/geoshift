@@ -6,6 +6,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import dev.chrisbanes.haze.HazeInput
@@ -239,20 +242,27 @@ private fun TabBar(selected: Tab, simulating: Boolean, hazeState: dev.chrisbanes
         shape(CircleShape)
     }
     BoxWithConstraints(
-        modifier.padding(horizontal = 22.dp).fillMaxWidth().height(TAB_BAR_HEIGHT)
+        modifier.padding(horizontal = 22.dp).widthIn(max = 360.dp).fillMaxWidth().height(TAB_BAR_HEIGHT)
+            .shadow(12.dp, CircleShape, clip = false)
             .hazeGlass(input = HazeInput.Sources(hazeState), style = glassStyle).padding(5.dp),
     ) {
         val density = LocalDensity.current
         val itemWidth = maxWidth / Tab.entries.size
         val itemWidthPx = with(density) { itemWidth.toPx() }
         var dragPosition by remember { mutableStateOf<Float?>(null) }
-        val position by animateFloatAsState(
+        val animatedPosition by animateFloatAsState(
             targetValue = dragPosition ?: selected.ordinal.toFloat(),
             animationSpec = spring(dampingRatio = 0.68f, stiffness = 500f), label = "tab lens",
+        )
+        val position = dragPosition ?: animatedPosition
+        val lensScale by animateFloatAsState(
+            targetValue = if (dragPosition != null) 1.12f else 1f,
+            animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f), label = "lens press",
         )
         Box(
             Modifier.offset { IntOffset((position * itemWidthPx).roundToInt(), 0) }
                 .size(width = itemWidth, height = TAB_BAR_HEIGHT - 10.dp)
+                .graphicsLayer { scaleX = lensScale; scaleY = lensScale }
                 .hazeGlass(input = HazeInput.Sources(hazeState), style = GlassStyle.regular.then {
                     shape(CircleShape)
                     tint(if (dark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.42f))
