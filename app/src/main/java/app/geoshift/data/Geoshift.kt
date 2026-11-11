@@ -289,7 +289,7 @@ class Geoshift private constructor(context: Context) {
             return true
         }
         store.updateRuntime(persist = a !== anchor) {
-            it.copy(position = p.point, bearing = p.bearing, speed = plan.speedAt(a, false, now), progress = p.progress, routeIndex = p.index, anchor = a)
+            it.copy(position = p.point, bearing = p.bearing, speed = plan.speedAt(a, p, now), progress = p.progress, routeIndex = p.index, anchor = a)
         }
         return true
     }
@@ -486,6 +486,9 @@ class Geoshift private constructor(context: Context) {
         stop()
         JoystickService.command(app, false)
         RecordKind.entries.forEach { list(it).clear() }
+        // The selected route is gone with the rest.
+        store.updateRuntime { it.copy(mode = SimMode.POINT, routeId = "", routeName = "", progress = 0.0, routeIndex = 0) }
+        synchronized(plans) { plans.clear() }
         store.clearLogs()
     }
 
@@ -497,7 +500,7 @@ class Geoshift private constructor(context: Context) {
 
     /** "lat, lon" goes straight to that point; AMap with a key, otherwise OpenStreetMap near [near]. */
     fun search(query: String, near: LatLon? = null): List<Place> {
-        Regex("""^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,，\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$""").find(query)?.let { m ->
+        COORDINATES.find(query)?.let { m ->
             val p = LatLon(m.groupValues[1].toDouble(), m.groupValues[2].toDouble())
             if (p.valid) return listOf(Place(String.format(Locale.ROOT, "%.6f, %.6f", p.lat, p.lon), "坐标（WGS-84）", p))
         }
@@ -586,5 +589,8 @@ class Geoshift private constructor(context: Context) {
         }
 
         val VERSION: String get() = BuildConfig.VERSION_NAME
+
+        /** "lat, lon" typed into the search box. */
+        private val COORDINATES = Regex("""^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,，\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$""")
     }
 }

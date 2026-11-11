@@ -115,9 +115,12 @@ class RoutePlan(val id: String, val points: List<LatLon>) {
     /** Ground speed at [nowMs] for a running anchor. */
     fun speedAt(anchor: RouteAnchor, paused: Boolean, nowMs: Long): Double {
         if (paused) return 0.0
-        val p = live(anchor, false, nowMs)
-        return if (p.finished) 0.0 else anchor.speed * speedFactor(nowMs / 1000.0) * p.pace
+        return speedAt(anchor, live(anchor, false, nowMs), nowMs)
     }
+
+    /** Ground speed at [nowMs] at an already computed, unpaused position [p]. */
+    fun speedAt(anchor: RouteAnchor, p: Position, nowMs: Long): Double =
+        if (p.finished) 0.0 else anchor.speed * speedFactor(nowMs / 1000.0) * p.pace
 
     /**
      * Anchor distance that continues from the current point after switching the repeat mode, so the

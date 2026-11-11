@@ -23,6 +23,7 @@ import org.json.JSONObject
  */
 class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
     @Volatile private var cachedUid = -1
+    private val FEATURE = Regex("[a-z_]{1,30}")
 
     fun install() {
         Diag.isSystemServer = true
@@ -89,7 +90,7 @@ class SystemSide(private val hooks: Hooker, private val loader: ClassLoader) {
                 extras.getDouble("speed"), extras.getDouble("bearing"))
             "REPORT" -> {
                 val feature = extras.getString("feature").orEmpty()
-                if (feature.matches(Regex("[a-z_]{1,30}"))) runCatching { Diag.reports[feature] = JSONObject(extras.getString("report") ?: "{}") }
+                if (feature.matches(FEATURE)) runCatching { Diag.reports[feature] = JSONObject(extras.getString("report") ?: "{}") }
             }
         }
     }

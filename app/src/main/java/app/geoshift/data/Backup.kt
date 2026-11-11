@@ -45,11 +45,15 @@ object Backup {
         data.wifiPresets.forEach { Validate.name(it.name); Validate.wifi(it.ssid, it.bssid) }
         data.cellPresets.forEach { Validate.name(it.name); Validate.cell(it.cell) }
         data.environments.forEach { Validate.name(it.name); Validate.coordinate(it.position) }
-        data.places.asReversed().forEach(store.places::put)
-        data.routes.asReversed().forEach(store.routes::put)
-        data.wifiPresets.asReversed().forEach(store.wifiPresets::put)
-        data.cellPresets.asReversed().forEach(store.cellPresets::put)
-        data.environments.asReversed().forEach(store.environments::put)
+        // Room is checked for every list before anything is written, and each list is written once.
+        if (!store.places.fits(data.places) || !store.routes.fits(data.routes) || !store.wifiPresets.fits(data.wifiPresets) ||
+            !store.cellPresets.fits(data.cellPresets) || !store.environments.fits(data.environments))
+            fail("导入后记录会超过 ${Validate.MAX_RECORDS} 条，请先导出并清理。")
+        store.places.putAll(data.places)
+        store.routes.putAll(data.routes)
+        store.wifiPresets.putAll(data.wifiPresets)
+        store.cellPresets.putAll(data.cellPresets)
+        store.environments.putAll(data.environments)
         return total
     }
 

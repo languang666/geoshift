@@ -205,38 +205,48 @@ private class RouteOverlay(context: Context) : Overlay() {
     private val point = Point()
     private val path = Path()
 
+    /** Screen positions of [points] (x, y pairs), reused between frames so drawing allocates nothing. */
+    private var pixels = FloatArray(0)
+
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow || points.isEmpty()) return
+        val count = points.size
+        if (shadow || count == 0) return
         val projection = mapView.projection
+        if (pixels.size < count * 2) pixels = FloatArray(count * 2)
         path.reset()
-        val pixels = points.map {
-            projection.toPixels(it, point)
-            Pair(point.x.toFloat(), point.y.toFloat())
+        for (i in 0 until count) {
+            projection.toPixels(points[i], point)
+            val x = point.x.toFloat()
+            val y = point.y.toFloat()
+            pixels[i * 2] = x
+            pixels[i * 2 + 1] = y
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
-        pixels.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x, y) else path.lineTo(x, y) }
-        if (pixels.size > 1) {
+        if (count > 1) {
             canvas.drawPath(path, casing)
             canvas.drawPath(path, line)
         }
-        val vertices = when {
-            anchors.isNotEmpty() -> anchors.map { projection.toPixels(it, point); Pair(point.x.toFloat(), point.y.toFloat()) }
-            editing || pixels.size <= 60 -> pixels
-            else -> emptyList()
+        if (anchors.isNotEmpty()) {
+            for (a in anchors) {
+                projection.toPixels(a, point)
+                vertex(canvas, point.x.toFloat(), point.y.toFloat())
+            }
+        } else if (editing || count <= 60) {
+            for (i in 0 until count) vertex(canvas, pixels[i * 2], pixels[i * 2 + 1])
         }
-        for ((x, y) in vertices) {
-            canvas.drawCircle(x, y, 4.5f * density, dot)
-            canvas.drawCircle(x, y, 4.5f * density, dotRing)
-        }
-        val (sx, sy) = pixels.first()
-        endFill.color = 0xFF1FA971.toInt()
-        canvas.drawCircle(sx, sy, 7 * density, dot)
-        canvas.drawCircle(sx, sy, 5 * density, endFill)
-        if (pixels.size > 1) {
-            val (ex, ey) = pixels.last()
-            endFill.color = PIN
-            canvas.drawCircle(ex, ey, 7 * density, dot)
-            canvas.drawCircle(ex, ey, 5 * density, endFill)
-        }
+        end(canvas, pixels[0], pixels[1], 0xFF1FA971.toInt())
+        if (count > 1) end(canvas, pixels[count * 2 - 2], pixels[count * 2 - 1], PIN)
+    }
+
+    private fun vertex(canvas: Canvas, x: Float, y: Float) {
+        canvas.drawCircle(x, y, 4.5f * density, dot)
+        canvas.drawCircle(x, y, 4.5f * density, dotRing)
+    }
+
+    private fun end(canvas: Canvas, x: Float, y: Float, color: Int) {
+        endFill.color = color
+        canvas.drawCircle(x, y, 7 * density, dot)
+        canvas.drawCircle(x, y, 5 * density, endFill)
     }
 
     override fun onSingleTapConfirmed(e: MotionEvent?, mapView: MapView?) = false

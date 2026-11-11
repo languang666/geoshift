@@ -456,7 +456,7 @@ const val HELP = """1. 首次使用：同意使用须知，授予精确位置权
 
 2. 标准模式：在系统「开发者选项 → 选择模拟位置信息应用」中选择 Geoshift，然后在地图选点并点击开始。系统会保留模拟标记。
 
-3. Xposed 模式：需要支持 libxposed API 101+ 的框架（如 Vector）。在框架管理器中启用 Geoshift（作用域已固定为系统框架、电话服务和蓝牙，无需手动勾选），然后重启手机。系统层会对所有应用（或设置里「模拟范围」选中的应用）伪装定位、Wi-Fi、基站和卫星。模拟开始后即使 Geoshift 被冻结或关闭也会继续，重启手机后自动停止。可在「控制台 → 系统诊断」查看各入口状态。
+3. Xposed 模式：需要支持新版 Xposed API 的框架（LSPosed 2.2 及以上，或 Vector）。在框架管理器中启用 Geoshift（作用域已固定为系统框架、电话服务和蓝牙，无需手动勾选），然后重启手机。系统层会对所有应用（或设置里「模拟范围」选中的应用）伪装定位、Wi-Fi、基站和卫星。模拟开始后即使 Geoshift 被冻结或关闭也会继续，重启手机后自动停止。可在「控制台 → 系统诊断」查看各入口状态。
 
 4. 选点：在地图上点击或长按选点，也可以在搜索框输入地名或「纬度, 经度」。
 
@@ -479,6 +479,7 @@ MapLibre Native — BSD 2-Clause License
 矢量瓦片 © OpenFreeMap © OpenMapTiles
 地图数据 © OpenStreetMap contributors — ODbL
 AndroidX / Jetpack Compose — Apache License 2.0
+Haze（玻璃底栏）— Apache License 2.0
 Kotlin — Apache License 2.0
 libxposed API（仅编译期使用，不打包）/ libxposed service — Apache License 2.0
 kotlinx.serialization — Apache License 2.0

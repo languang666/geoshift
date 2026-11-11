@@ -45,7 +45,7 @@ class JoystickService : Service() {
         val close = PendingIntent.getService(this, 2, Intent(this, JoystickService::class.java).setAction(ACTION_CLOSE),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         startForeground(NOTIFICATION_ID, Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(app.geoshift.R.drawable.ic_stat_geoshift)
             .setContentTitle("Geoshift 摇杆")
             .setContentText("拖动圆盘移动；点右上角 × 关闭悬浮窗")
             .setOngoing(true)

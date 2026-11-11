@@ -54,7 +54,7 @@ object FixBuilder {
         val anchor = config.route
         if (anchor != null && plan != null && plan.id == anchor.routeId) {
             val p = plan.live(anchor, config.paused, atMs)
-            return Triple(p.point, p.bearing, plan.speedAt(anchor, config.paused, atMs))
+            return Triple(p.point, p.bearing, if (config.paused) 0.0 else plan.speedAt(anchor, p, atMs))
         }
         return Triple(config.position, config.bearing, if (config.paused) 0.0 else config.speed)
     }

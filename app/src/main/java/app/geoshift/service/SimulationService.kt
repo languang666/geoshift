@@ -48,7 +48,7 @@ class SimulationService : Service() {
         val stop = PendingIntent.getService(this, 1, Intent(this, SimulationService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(app.geoshift.R.drawable.ic_stat_geoshift)
             .setContentTitle("Geoshift")
             .setContentText(text)
             .setContentIntent(open)

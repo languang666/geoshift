@@ -92,7 +92,6 @@ import app.geoshift.ui.theme.Warning
 import kotlinx.coroutines.delay
 import java.util.Locale
 import app.geoshift.core.Repeat
-import app.geoshift.core.Geo
 
 /** Problems that keep simulation from starting, each with a short fix description. */
 fun readinessIssues(s: AppState): List<String> = buildList {
@@ -319,7 +318,7 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
                 style = MaterialTheme.typography.bodySmall, color = sub)
         }
         if (on && r.routeMode && s.currentRoute.size >= 2) {
-            val totalLength = Geo.routeLength(s.currentRoute)
+            val totalLength = s.currentRouteLength
             val remainingMetres = (totalLength * (1.0 - r.progress)).coerceAtLeast(0.0)
             val currentSpeed = if (r.speed > 0.1) r.speed else (s.settings.speedMode.metresPerSecond * s.settings.speedMultiplier)
             val remainingSec = if (currentSpeed > 0.05) (remainingMetres / currentSpeed).toLong() else 0L
@@ -388,7 +387,7 @@ private fun RouteCard(s: AppState, vm: AppViewModel, onPickRoute: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (hasRoute) r.routeName.ifEmpty { "未命名路线" } else "未选择路线", style = MaterialTheme.typography.titleSmall)
-                Text(if (hasRoute) "${s.currentRoute.size} 个点 · ${formatDistance(Geo.routeLength(s.currentRoute))}" else "在收藏中选择，或在地图上绘制",
+                Text(if (hasRoute) "${s.currentRoute.size} 个点 · ${formatDistance(s.currentRouteLength)}" else "在收藏中选择，或在地图上绘制",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             TextButton(onClick = onPickRoute) { Text(if (hasRoute) "更换" else "选择") }

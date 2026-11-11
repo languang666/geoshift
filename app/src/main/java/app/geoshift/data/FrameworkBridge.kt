@@ -4,7 +4,6 @@ import android.content.Context
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.SystemClock
-import android.provider.Settings.Global
 import app.geoshift.core.LatLon
 import app.geoshift.core.SimConfig
 import app.geoshift.xposed.Bridge
@@ -42,7 +41,6 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
     private var uploadedRoutes = HashSet<String>()
     private var lastStable: SimConfig? = null
     private var lastWriteAt = 0L
-    @Volatile private var pending: SimConfig? = null
     /** Called when the service (re)binds so the current config is written to it. */
     var onBind: (() -> Unit)? = null
 
@@ -115,7 +113,6 @@ class FrameworkBridge(private val context: Context) : XposedServiceHelper.OnServ
             lastStable = stable
             lastWriteAt = now
         } catch (e: Throwable) {
-            pending = config
             throw UserError("写入 Xposed 配置失败：${e.javaClass.simpleName}。请确认框架支持 libxposed API 101+。")
         }
     }

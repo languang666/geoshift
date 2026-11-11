@@ -53,6 +53,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
     @Volatile private var lastTarget = "尚无"
     @Volatile private var lastPumpError = ""
     private var lastPumpReport = 0L
+    @Volatile private var lastProgressAt = 0L
 
     private fun active(): SimConfig? = Sim.config.takeIf { it.locationOn }
 
@@ -182,8 +183,7 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
             if (provider !in providers && provider != "passive") return
             call.args[0] = Fakes.replacePacket(c, packet)
             delivered.incrementAndGet()
-            lastTarget = targetOf(call.thisObject)
-            progress()
+            progress(call.thisObject)
         } catch (e: Throwable) {
             call.drop()
             Diag.report("location_delivery", false, "error", "定位交付替换失败，已阻止返回真实数据：${e.javaClass.simpleName}")
@@ -358,7 +358,12 @@ class LocationHooks(private val hooks: Hooker, private val loader: ClassLoader) 
 
     private fun counts(map: ConcurrentHashMap<String, AtomicLong>) = providers.joinToString(" ") { "$it=${map[it]?.get() ?: 0}" }
 
-    private fun progress() {
+    /** Deliveries are frequent: the package lookup and the report text are built at most every few seconds. */
+    private fun progress(registration: Any?) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastProgressAt < 3000) return
+        lastProgressAt = now
+        lastTarget = targetOf(registration)
         Diag.report("location_delivery", true, "injected",
             "已改写交付 ${delivered.get()} 次（入口 $deliveryHooks）· 拦截真实上报 ${counts(dropped)} · 最近目标 $lastTarget")
     }

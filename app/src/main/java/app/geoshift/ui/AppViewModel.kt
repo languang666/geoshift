@@ -43,9 +43,14 @@ data class AppState(
     val reports: Map<String, Report>,
     val mapKeyConfigured: Boolean,
 ) {
+    /** The selected route, looked up once per state. */
+    val currentRouteRecord: SavedRoute? by lazy { routes.firstOrNull { it.id == runtime.routeId } }
+
     /** Points of the selected route, or none. */
-    val currentRoute: List<app.geoshift.core.LatLon>
-        get() = routes.firstOrNull { it.id == runtime.routeId }?.points.orEmpty()
+    val currentRoute: List<app.geoshift.core.LatLon> get() = currentRouteRecord?.points.orEmpty()
+
+    /** Length of the selected route in metres (cached on the record). */
+    val currentRouteLength: Double get() = currentRouteRecord?.length ?: 0.0
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {

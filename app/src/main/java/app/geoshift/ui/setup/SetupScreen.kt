@@ -69,7 +69,7 @@ fun SetupScreen(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, o
             if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") } else Spacer(Modifier.width(12.dp))
         }
         Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(R.drawable.ic_portal), null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(48.dp))
+            Icon(painterResource(R.drawable.ic_logo), null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(48.dp))
             Spacer(Modifier.width(14.dp))
             Column {
                 Text(if (accepted) "权限与模块" else "欢迎使用 Geoshift", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)

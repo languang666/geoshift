@@ -213,6 +213,7 @@ fun MapScreen(
     val road = profile.road && roadPath != null
     val editRoute = if (road) roadPath!! else waypoints
     val editAnchors = if (road) waypoints else emptyList()
+    val editLength = remember(editRoute) { Geo.routeLength(editRoute) }
 
     // Reverse-geocode the selected point when a map key is configured.
     LaunchedEffect(selected, s.settings.privacyAccepted) {
@@ -430,7 +431,7 @@ fun MapScreen(
             when (m) {
                 2 -> RouteEditorCard(
                     count = draft.size,
-                    length = Geo.routeLength(editRoute),
+                    length = editLength,
                     profile = profile,
                     roadStatus = when {
                         profile == RoadProfile.FLY -> "点与点之间直线飞行，按飞行速度播放"
@@ -514,14 +515,14 @@ fun MapScreen(
         val kind = profile
         val title = when {
             kind == RoadProfile.STRAIGHT -> "路线 ${via.size} 点"
-            else -> "${kind.label}路线 ${formatDistance(Geo.routeLength(points))}"
+            else -> "${kind.label}路线 ${formatDistance(editLength)}"
         }
         InputDialog("保存路线", initial = title, label = "名称",
             hint = (when {
                 kind == RoadProfile.FLY -> "飞行 · ${via.size} 个途经点"
                 !kind.road -> "共 ${via.size} 个点"
                 else -> "沿道路${kind.label} · ${via.size} 个途经点"
-            }) + " · ${formatDistance(Geo.routeLength(points))}路线",
+            }) + " · ${formatDistance(editLength)}路线",
             onDismiss = { routeDialog = false }) { name ->
             vm.run<String>("路线保存成功", onDone = { editing = false; draft.clear() }) { saveRoute(name, points, via, kind) }
         }

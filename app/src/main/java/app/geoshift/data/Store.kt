@@ -47,6 +47,21 @@ class RecordList<T : Record> internal constructor(dir: File, name: String, seria
         save(next)
     }
 
+    /** Room left before [Validate.MAX_RECORDS] once [items] replace the records sharing their ids. */
+    fun fits(items: List<T>): Boolean {
+        val ids = items.mapTo(HashSet()) { it.id }
+        return ids.size + flow.value.count { it.id !in ids } <= Validate.MAX_RECORDS
+    }
+
+    /** Adds or replaces many records with one write; [items] end up on top in the given order. */
+    @Synchronized fun putAll(items: List<T>) {
+        if (items.isEmpty()) return
+        if (!fits(items)) fail("记录已达 ${Validate.MAX_RECORDS} 条，请先导出并清理。")
+        val unique = items.distinctBy { it.id }
+        val ids = unique.mapTo(HashSet()) { it.id }
+        save(unique + flow.value.filter { it.id !in ids })
+    }
+
     @Synchronized fun remove(ids: Set<String>) = save(flow.value.filter { it.id !in ids })
 
     @Synchronized fun clear() = save(emptyList())

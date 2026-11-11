@@ -133,7 +133,8 @@ fun HistoryScreen(
         selectedIds = emptySet()
     }
 
-    val rows = when (tab) {
+    // Rebuilt only when the records, the search or the order change, not on every simulation tick.
+    val rows = remember(tab, s.places, s.routes, s.environments, query, sort) { when (tab) {
         0 -> s.places.map {
             HistoryRow("locations", it.id, it.name, it.address.ifEmpty { formatCoord(it.position.lat, it.position.lon) }, it.createdAt, Icons.Rounded.Place, it.position)
         }
@@ -155,7 +156,7 @@ fun HistoryScreen(
                 Sort.OLDEST -> list.sortedBy { it.time }
                 Sort.NAME -> list.sortedBy { it.name }
             }
-        }
+        } }
 
     Column(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
         if (selectionMode) {
@@ -315,7 +316,7 @@ fun HistoryScreen(
         }
     }
     // Search or sort can hide selected rows; only visible rows stay selected (and get deleted).
-    val visibleIds = rows.map { it.id }.toSet()
+    val visibleIds = remember(rows) { rows.map { it.id }.toSet() }
     LaunchedEffect(visibleIds) { selectedIds = selectedIds intersect visibleIds }
 
     if (confirmBatchDelete) {

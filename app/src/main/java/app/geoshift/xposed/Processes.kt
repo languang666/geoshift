@@ -3,6 +3,7 @@ package app.geoshift.xposed
 import android.app.PendingIntent
 import android.os.Binder
 import android.os.Bundle
+import android.os.SystemClock
 import app.geoshift.core.SimConfig
 import java.lang.reflect.Method
 import java.util.Collections
@@ -126,6 +127,7 @@ class PhoneSide(private val hooks: Hooker, private val loader: ClassLoader) {
 class BluetoothSide(private val hooks: Hooker, private val loader: ClassLoader) {
     private val drops = AtomicLong()
     private val unknown = AtomicLong()
+    @Volatile private var lastDropReport = 0L
 
     private fun report(ok: Boolean, stage: String, detail: String) = Diag.report("bluetooth", ok, stage, detail)
 
@@ -156,7 +158,11 @@ class BluetoothSide(private val hooks: Hooker, private val loader: ClassLoader) 
         }
         if (!AppScope.covers(c, uid)) return
         call.drop()
-        report(true, "read", "已拦截蓝牙扫描结果 ${drops.incrementAndGet()} 次")
+        val n = drops.incrementAndGet()
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastDropReport < 3000) return
+        lastDropReport = now
+        report(true, "read", "已拦截蓝牙扫描结果 $n 次")
     }
 
     private fun pendingOwner(args: Array<Any?>): Int {
