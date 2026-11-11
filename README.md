@@ -1,11 +1,11 @@
-# Geoshift（2.7.1，原 Portal Compose 版）
+# Geoshift 3
 
-原生 Kotlin + Jetpack Compose 编写的虚拟定位工具，使用流程参照 PortalDev，界面在 2.7.0 重新设计。
+原生 Kotlin + Jetpack Compose 编写的虚拟定位工具，使用流程参照 PortalDev。3.0 全部代码用 Kotlin 重写，Xposed 部分改用新版 libxposed API；界面改为 iOS 26 风格（悬浮毛玻璃标签栏、圆角分组列表、大标题、iOS 开关与分段控件，深浅色）。
 
 底部四个标签：地图、控制台、收藏、设置。地图负责选点、搜索（地名或「纬度, 经度」）、画路线和开始/停止；控制台集中显示模拟状态和各项模拟开关（定位、摇杆、Wi-Fi、基站、卫星）、路线播放与系统诊断；Wi-Fi 模拟、基站模拟、权限与模块引导是二级页面。
 
-- 包名 `app.geoshift`。1.x 网页版（`local.portal.rebuild`）是另一个应用，不能覆盖安装；记录用「设置 → 导出备份 / 导入备份」迁移。2.x 各版本之间可以直接覆盖升级。
-- Java 底层包含模拟服务、摇杆、LSPosed 系统注入、设备扫描、地图网络、坐标算法和本地存储；界面与业务操作使用 Kotlin。
+- 包名 `app.geoshift`，可从 2.x 覆盖安装，但 **3.0 不沿用 2.x 的数据**：升级前在 2.x「设置 → 导出备份」，升级后「导入备份」（兼容 2.x 备份）。
+- **框架要求变化**：3.0 是新版 Xposed API（libxposed API 101+）模块，需要 Vector 等支持新 API 的框架；原版 LSPosed 1.x 只支持旧 API，**不再支持**。Root 方案 Magisk 或 KernelSU（KernelSU 需配合 Zygisk Next）均可。
 - **全部功能无需任何 Key**。高德 Web 服务 Key 是可选项，只用来提升国内搜索、地址和道路数据。2.5.0 起不再内置高德地图 SDK，也不再需要 Android Key（升级时会清除旧版保存的 Android Key）。
 - 地图图层（默认高德地图；地图右侧图层按钮或「设置 → 地图图层」切换，选择会保存，切换时保留中心和缩放。地图显示不出来时，搜索栏下方有可关闭的小提示，可一键换图层或填写高德 Key）：
   - 默认地图：OpenStreetMap 瓦片（osmdroid），深色模式对瓦片反色。OSM 官方瓦片没有高清版，需要清晰显示时请用矢量地图。
@@ -19,11 +19,11 @@
 
 ## 系统定位
 
-支持 LSPosed 及其后继 Vector（JingMatrix/Vector，兼容旧版 Xposed API）。作用域勾选「系统框架」「电话服务」和「蓝牙」（模块已声明推荐作用域，含 system 与 com.android.providers.telephony 两种写法），不需要勾选目标应用（与原版 PortalDev 的做法一致）。模拟期间所有改写都在系统侧完成：
+需要支持 libxposed API 101+ 的 Xposed 框架（如 Vector，JingMatrix/Vector）。模块使用**静态作用域**，固定为「系统框架」「电话服务」和「蓝牙」，在框架里启用模块后重启手机即可，不需要也不能勾选其他应用（与原版 PortalDev 的做法一致）。模拟期间所有改写都在系统侧完成：
 
 - 定位：system_server 按上报间隔主动向 gps / network / fused 推送模拟位置，真实上报直接丢弃（替换真实上报会让监听被动位置的融合定位服务反复回环）；发给每个应用的定位回调、单次定位、PendingIntent 和缓存位置都是模拟位置，不带模拟标记。
 - 定位数据：每次开始模拟生成一个随机种子，静止时位置在几米内平滑随机漂移，精度、海拔和静止速度随时间轻微波动；随机过程可按时间重放，gps / network / fused 和 NMEA 共用同一份结果。可选的额外抖动不超过 1 米，并在时间上平滑变化，避免逐秒跳点。网络定位精度为 20 米左右，且不带海拔和速度。这是有限的合成误差模型，不等同真实接收机的全部特征。
-- 不受 App 休眠影响：App 把配置和一个进程令牌交给系统侧，只要 Geoshift 进程还在，熄屏、休眠或被后台冻结时系统侧都继续模拟；进程被杀才恢复真实位置。
+- 不受 App 休眠影响：配置保存在框架的远程配置中，App 熄屏、休眠、被冻结甚至被结束，系统侧都继续模拟（路线也继续前进），直到在 App 里停止，或重启手机（重启后旧配置自动失效，恢复真实位置）。
 - 路线由系统侧播放：路线点只发送一次，系统侧按时间自己计算当前位置，App 被冻结时路线照样前进。速度在设定值的 80%–120% 之间平滑波动，App 界面与系统侧用同一公式，位置一致。
 - 应用开始监听定位时，系统侧立即推送一次模拟位置，不必等下一个上报间隔。
 - 停止模拟后立即恢复：系统各定位来源缓存里残留的模拟位置不会再发给应用（返回该来源最近一次真实定位，没有则为空），直到真实定位到来。
@@ -41,7 +41,7 @@
 
 已确认属于模拟范围的系统定位、Wi-Fi 和电话服务主路径，替换失败时返回空结果或跳过该次回调，并记录诊断，避免错误时退回真实数据。Wi-Fi 网络回调尽量保留网络能力，只移除无法构建的 Wi-Fi 详情。「仅选中的应用」模式下无法识别归属的回调会记录警告，仍不扩大模拟范围，因此未知归属入口不代表已受保护。Wi-Fi RTT 等独立测距入口尚未覆盖。
 
-电话和蓝牙进程读取系统配置时，只有带确认标记的成功回复才更新状态。IPC 失败、未被模块处理的命令回复或配置损坏，会保留最近一次有效配置并记录限速日志，避免临时通信故障放行真实信号；系统确认已停止后才清除缓存。通信持续失败时，这些进程可能继续使用旧配置，直至通信恢复；配置刷新间隔为 500 ms，不能保证开始/停止在各进程间同时生效。更新模块后需重启相关系统进程（通常重启手机），避免新旧协议混用。
+配置传递：App 把模拟配置写入框架的远程配置，框架推送给电话和蓝牙进程；Vector 不向 system_server 推送远程配置变更，所以 App 同时经命令通道把同一份配置直接交给 system_server。各进程只在配置变化时更新，不再轮询。配置带「开机时刻」，重启后的旧配置一律忽略。按名称查找的系统入口找不到时，会在「系统诊断 → 缺失入口」里列出名称。更新模块后需重启手机。
 
 模拟范围（「设置 → 模拟范围」）：默认所有应用；可改为「仅选中的应用」，其他应用（如导航）继续拿到真实位置、Wi-Fi、基站和卫星。系统侧按每个回调所属的应用分别处理；使用谷歌融合定位的应用需同时选中「Google Play 服务」。
 
@@ -49,11 +49,11 @@
 
 「控制台 → 系统诊断」显示真实上报拦截数、推送成功／失败、应用回调替换计数、Wi-Fi 与电话服务报告。
 
-2.5.1 已在 Android 15 模拟器（Magisk 31.1 + Vector v2.2，勾系统框架、电话服务和蓝牙；2.4.3 在 LSPosed 1.11.0 上同样验证过）上用独立探针应用（tests/probe）验证：定位 8 种读取方式、Google 融合定位 4 种读取方式、卫星、NMEA、GNSS 原始测量、Wi-Fi 3 种读取方式、基站 6 种读取方式在未设预设和设了预设时均为模拟值，停止后恢复真实值。蓝牙伪装入口已在蓝牙进程安装，但模拟器周围没有蓝牙设备，拦截效果需在真机验证；小米模糊定位服务只存在于小米 ROM，模拟器无法验证；尚未在 Redmi K70 实机验证。实现参考见 [开源项目对照](tests/OPEN_SOURCE_REVIEW.md)。
+3.0.0 已在 Android 15 模拟器上分别用 Magisk 31.1 + Vector v2.2 和 KernelSU v3.3.1（LKM）+ Zygisk Next 1.5.3 + Vector v2.2 验证：模块按新 API 在三个进程加载，探针结果全部为模拟值，路线播放、停止恢复、重启后失效、摇杆均正常。2.5.1 起用独立探针应用（tests/probe）验证的范围：定位 8 种读取方式、Google 融合定位 4 种读取方式、卫星、NMEA、GNSS 原始测量、Wi-Fi 3 种读取方式、基站 6 种读取方式在未设预设和设了预设时均为模拟值，停止后恢复真实值。蓝牙伪装入口已在蓝牙进程安装，但模拟器周围没有蓝牙设备，拦截效果需在真机验证；小米模糊定位服务只存在于小米 ROM，模拟器无法验证；尚未在 Redmi K70 实机验证。实现参考见 [开源项目对照](tests/OPEN_SOURCE_REVIEW.md)。
 
 ## 构建与验证
 
-需要 JDK 17+、Android SDK（platform 37、build-tools 37.0.0）。构建工具链：Gradle 9.8.2、AGP 9.4.1（内置 Kotlin 2.4.21）、Compose BOM 2026.09.00。
+需要 JDK 17+、Android SDK（platform 37、build-tools 37.0.0）。构建工具链：Gradle 9.8.2、AGP 9.4.1（内置 Kotlin 2.4.21）、Compose BOM 2026.09.00、libxposed api / service 102、kotlinx-serialization。
 
 本地工作区布局（仓库只是其中的 `source/`）：
 
@@ -77,27 +77,26 @@ SDK 默认取 `../android/sdk`（可用 ANDROID_HOME 覆盖）。
 
 ## 开发记录
 
-检查与优化记录统一存放在 [docs/](docs/README.md)。本轮详情见 [2026-11-09 定位与隐私优化记录](docs/reviews/2026-11-09-location-privacy.md)，其中区分已完成修改、验证结果和剩余限制。
+检查与优化记录统一存放在 [docs/](docs/README.md)。3.0 的分层与配置通道设计见 [3.0 重写设计](docs/rewrite-3.0.md)。
 
 ## 目录
 
 ```
 app/src/main/java/app/geoshift/
-  *.java                 底层：模拟服务、摇杆、LSPosed hook（系统框架 / 电话服务 / 蓝牙）、扫描、地图网络、坐标算法
-  MainActivity.kt        Compose 入口、权限申请、备份导入导出
-  data/                  PortalState（类型化状态）、PortalActions（全部业务操作与校验）、
-                         RoadRouter（沿道路路线）、OpenGeocoder（免 Key 搜索与地址）
-  ui/                    PortalApp（导航）、map/（VectorMap：MapLibre 图层；OsmMap：OSM 默认图层）、
-                         history/ mock/ settings/ setup/ 各页面、theme/、components/
-tests/run-checks.sh      一键运行下面两组回归测试
-tests/GeoChecks.java     坐标算法与地图切换坐标回归测试
-tests/bridge/            系统 hook、路线播放、NMEA 逻辑回归（API 替身）
-tests/probe/             探针应用 GeoProbe：以普通应用身份读取全部定位线索，logcat 标签 GEOPROBE
+  core/        纯 Kotlin：坐标、噪声、模拟定位点、卫星天空、NMEA、路线回放、配置模型（JVM 可测）
+  xposed/      模块入口 Module、Hook DSL、反射登记、配置读取、诊断；system/（system_server）、
+               Processes.kt（电话服务 / 蓝牙）
+  data/        Store（JSON 文件 + StateFlow）、Geoshift（全部业务操作与校验）、FrameworkBridge、
+               Backup（导入导出，兼容 2.x）、net/（高德、OSM 搜索与地址、道路路线、出口 IP）、DeviceScanner
+  service/     SimulationService（模拟时钟 / 测试提供器）、JoystickService（悬浮摇杆）
+  map/         MapSource
+  ui/          GeoshiftApp（导航与标签栏）、AppViewModel、map/ mock/ history/ settings/ setup/、theme/、components/
+app/src/test/  core 单元测试
+tests/run-checks.sh   运行单元测试
+tests/probe/          探针应用 GeoProbe：以普通应用身份读取全部定位线索，logcat 标签 GEOPROBE
 ```
 
-回归测试（无需真机或网络）：`bash tests/run-checks.sh`。这些测试使用 API 替身与模拟 hook 调度器，不能替代真机 / LSPosed 验证。
-
-回归包含生产 `SystemSpoofHooks`、`CallbackOwners` 和 `AppScope` 的回调替换、归属解析与异常阻断检查，以及配置读取失败/确认停止、Wi-Fi 构建/包装失败、字段一致性、停止恢复、长时间开机的卫星角度边界、小米模糊定位回复不污染共享缓存。测试中的 `SystemHook` 仅为缓存分类替身；完整的 `SystemHook` / `PortalHook` 仍需 Android 构建和实机验证。探针同时输出 Wi-Fi 扫描、连接、网络能力查询与网络回调的频率/RSSI、Passpoint 和 MLO 字段，便于真机对照。
+单元测试（无需真机或网络）：`bash tests/run-checks.sh`。系统侧效果需在装有 Xposed 框架的设备或模拟器上用 GeoProbe 验证。
 
 Android 静态检查：`./gradlew lintRelease`。请与发布构建串行执行，避免共享编译目录发生冲突。
 
@@ -105,6 +104,6 @@ Android 静态检查：`./gradlew lintRelease`。请与发布构建串行执行�
 
 本项目代码以 Apache License 2.0 发布，见 [LICENSE](LICENSE)。
 
-osmdroid、AndroidX、Kotlin、Xposed API（仅编译期）均为 Apache License 2.0；地图数据 © OpenStreetMap contributors（ODbL）。
+osmdroid、AndroidX、Kotlin、kotlinx-serialization、libxposed api（仅编译期）/ service 均为 Apache License 2.0；地图数据 © OpenStreetMap contributors（ODbL）。
 MapLibre Native 为 BSD 2-Clause License；矢量瓦片 © OpenFreeMap © OpenMapTiles。搜索、地址和道路路线分别使用 Photon（Komoot）、Nominatim 和 FOSSGIS OSRM 公共服务，请遵守其使用政策。
 界面流程参照 fuqiuluo/Portal（Apache License 2.0）与 PortalDev；代码为本工程独立实现，未复制原版 bundle、DEX 或原生库。
