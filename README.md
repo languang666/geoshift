@@ -67,7 +67,7 @@ geoshift/
 ```
 
 ```
-./build-release.sh              # 产出 ../releases/Geoshift-<版本>.apk（仅 ARM），用 ../signing 中的私钥签名（可用 PORTAL_KEYS 指定）
+./build-release.sh              # 产出 ../releases/Geoshift-<版本>.apk（仅 64 位 ARM），用 ../signing 中的私钥签名（可用 PORTAL_KEYS 指定）
 EMULATOR=1 ./build-release.sh   # 额外打包 x86_64 原生库，产出 -emulator.apk，仅用于模拟器测试
 ```
 
