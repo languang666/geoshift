@@ -17,5 +17,5 @@ public class XC_MethodHook {
         public void setObjectExtra(String key,Object value){extras.put(key,value);}
         public Object getObjectExtra(String key){return extras.get(key);}
     }
-    public final class Unhook { public void unhook(){ XposedBridge.remove(XC_MethodHook.this); } }
+    public final class Unhook { public void unhook(){ XposedBridge.remove(XC_MethodHook.this); } public java.lang.reflect.Member getHookedMethod(){ return null; } }
 }

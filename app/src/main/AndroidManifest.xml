@@ -25,6 +25,7 @@
 
     <application
         android:label="Geoshift"
+        android:description="@string/module_description"
         android:icon="@drawable/ic_portal"
         android:roundIcon="@drawable/ic_portal"
         android:theme="@style/AppTheme"
@@ -46,7 +47,7 @@
         <service android:name=".OverlayService" android:exported="false" android:foregroundServiceType="location"/>
         <meta-data android:name="xposedmodule" android:value="true"/>
         <meta-data android:name="xposedminversion" android:value="82"/>
-        <meta-data android:name="xposeddescription" android:value="Geoshift 位置模拟：支持系统框架定位注入及目标应用内 Wi-Fi、基站和 GNSS 模拟。"/>
+        <meta-data android:name="xposeddescription" android:value="@string/module_description"/>
         <meta-data android:name="xposedscope" android:resource="@array/xposed_scope"/>
     </application>
 </manifest>

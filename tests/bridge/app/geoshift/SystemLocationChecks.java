@@ -67,12 +67,12 @@ public final class SystemLocationChecks {
         Location recent=new Location("gps");recent.setLatitude(3);recent.setLongitude(4);recent.setElapsedRealtimeNanos(123456000000L);
         LocationResult realBatch=LocationResult.create(Arrays.asList(past,recent));
         LocationResult batch=(LocationResult)LocationPacket.replace(config,realBatch);
-        check(batch!=realBatch&&batch.getLocations().size()==2,"framework delivery keeps the entire batch");
-        check(batch.getLocations().get(0).getElapsedRealtimeNanos()==113456000000L&&batch.getLastLocation().getElapsedRealtimeNanos()==123456000000L,"framework delivery keeps historical timestamps");
-        check(Geo.distance(batch.getLocations().get(0).getLatitude(),batch.getLocations().get(0).getLongitude(),39.9042,116.4074)<4,"historical batch coordinates replaced");
-        check(realBatch.getLocations().get(0)==past&&past.getLatitude()==1,"real batch untouched");
+        check(batch!=realBatch&&batch.asList().size()==2,"framework delivery keeps the entire batch");
+        check(batch.asList().get(0).getElapsedRealtimeNanos()==113456000000L&&batch.getLastLocation().getElapsedRealtimeNanos()==123456000000L,"framework delivery keeps historical timestamps");
+        check(Geo.distance(batch.asList().get(0).getLatitude(),batch.asList().get(0).getLongitude(),39.9042,116.4074)<4,"historical batch coordinates replaced");
+        check(realBatch.asList().get(0)==past&&past.getLatitude()==1,"real batch untouched");
         LocationResult secondPass=(LocationResult)LocationPacket.replace(config,batch);
-        check(secondPass.getLocations().size()==2&&secondPass.getLocations().get(0).getElapsedRealtimeNanos()==113456000000L,"multiple delivery layers preserve history");
+        check(secondPass.asList().size()==2&&secondPass.asList().get(0).getElapsedRealtimeNanos()==113456000000L,"multiple delivery layers preserve history");
         Build.VERSION.SDK_INT=26;check(!FakeLocation.build(config,"network").isMock(),"legacy constructor keeps flag clear");
         // A cached fix older than 10 minutes must not make the simulated one equally stale.
         android.os.SystemClock.now=3_600_000L;

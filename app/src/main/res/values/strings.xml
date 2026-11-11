@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="module_description" translatable="false">Geoshift 位置模拟：支持系统框架定位注入及目标应用内 Wi-Fi、基站和 GNSS 模拟。</string>
+</resources>
