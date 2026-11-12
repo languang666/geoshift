@@ -22,6 +22,12 @@ class SimConfigTest {
         assertFalse(app.geoshift.data.Validate.cellOk(cell.copy(pci = 1008)))
     }
 
+    @Test fun scannedCellWithoutSignalKeepsIdentity() {
+        val scanned = app.geoshift.data.ScannedCell("NR", "460", "01", 45678912345L, 12345, 500, 627264, Int.MAX_VALUE)
+        assertEquals(CellSpec(CellType.NR, "460", "01", 45678912345L, 12345, 500, 627264, -85, registered = false), scanned.toSpec())
+        assertEquals(null, scanned.copy(cid = null).toSpec())
+    }
+
     @Test fun unknownFieldsAreIgnored() {
         assertEquals(SimConfig(bootAt = 3), SimConfig.decode("""{"bootAt":3,"future":true}"""))
     }

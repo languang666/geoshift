@@ -179,11 +179,11 @@ data class ScannedCell(
     val dbm: Int = -85,
     val registered: Boolean = false,
 ) {
-    /** The simulated form, for LTE and GSM cells with complete ids. */
+    /** The simulated form, for LTE, GSM and NR cells with complete ids (an unreported signal becomes -85 dBm). */
     fun toSpec(): CellSpec? {
         val t = when (type) { "LTE" -> CellType.LTE; "GSM" -> CellType.GSM; "NR" -> CellType.NR; else -> return null }
-        return CellSpec(t, mcc, mnc, cid ?: return null, area ?: return null, pci ?: 0, channel ?: 0, dbm, registered)
-            .takeIf { Validate.cellOk(it) }
+        val spec = CellSpec(t, mcc, mnc, cid ?: return null, area ?: return null, pci ?: 0, channel ?: 0, dbm, registered)
+        return spec.takeIf { Validate.cellOk(it) } ?: spec.copy(dbm = -85).takeIf { Validate.cellOk(it) }
     }
 }
 

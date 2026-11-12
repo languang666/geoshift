@@ -379,7 +379,7 @@ private fun CellDialog(initial: CellDraft, title: String, onDismiss: () -> Unit,
                     area = values["area"]!!.trim().toIntOrNull() ?: -1,
                     pci = if (gsm) 0 else values["pci"]!!.trim().toIntOrNull() ?: -1,
                     channel = values["channel"]!!.trim().let { if (it.isEmpty()) 0 else it.toIntOrNull() ?: -1 },
-                    dbm = values["rssi"]!!.trim().toIntOrNull() ?: 0,
+                    dbm = values["rssi"]!!.trim().let { if (it.isEmpty()) -85 else it.toIntOrNull() ?: 0 },
                     registered = initial.registered,
                 ))
             }) { Text("保存") }

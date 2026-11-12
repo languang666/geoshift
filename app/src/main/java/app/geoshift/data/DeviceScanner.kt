@@ -12,6 +12,7 @@ import android.telephony.CellInfoGsm
 import android.telephony.CellInfoLte
 import android.telephony.CellInfoNr
 import android.telephony.CellInfoWcdma
+import android.telephony.CellSignalStrengthNr
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import java.util.concurrent.CountDownLatch
@@ -105,7 +106,7 @@ class DeviceScanner(private val context: Context, private val caps: () -> Capabi
                 area = v.cellIdentity.networkId.orNull(), dbm = v.cellSignalStrength.dbm, registered = v.isRegistered)
             else -> if (Build.VERSION.SDK_INT >= 29 && v is CellInfoNr) (v.cellIdentity as CellIdentityNr).let { i ->
                 ScannedCell("NR", i.mccString.orEmpty(), i.mncString.orEmpty(), i.nci.takeIf { it != Long.MAX_VALUE }, i.tac.orNull(),
-                    i.pci.orNull(), i.nrarfcn.orNull(), v.cellSignalStrength.dbm, v.isRegistered)
+                    i.pci.orNull(), i.nrarfcn.orNull(), (v.cellSignalStrength as CellSignalStrengthNr).let { s -> s.ssRsrp.orNull() ?: s.csiRsrp }, v.isRegistered)
             } else null
         }
     } catch (_: Exception) {

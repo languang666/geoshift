@@ -257,7 +257,8 @@ public class ProbeActivity extends Activity {
     private static String cells(List<CellInfo> cells) {
         if (cells == null) return "null";
         StringBuilder b = new StringBuilder("count=" + cells.size());
-        for (CellInfo c : cells) b.append(" | ").append(c.getCellIdentity().toString().replaceAll("\\s+", " "));
+        for (CellInfo c : cells) b.append(" | ").append(c.getCellIdentity().toString().replaceAll("\\s+", " "))
+                .append(" dbm=").append(c.getCellSignalStrength().getDbm()).append(" level=").append(c.getCellSignalStrength().getLevel());
         return b.length() > 400 ? b.substring(0, 400) : b.toString();
     }
 

@@ -105,6 +105,10 @@ object Fakes {
             Reflect.set(identity, "mArfcn", v.channel, "基站")
             Reflect.set(signal, "mRssi", v.dbm, "基站信号")
         }
+        // Android 10+ caches the bar count in mLevel; without it getLevel() reports no signal.
+        if (Reflect.hasField(signal.javaClass, "mLevel")) Reflect.set(signal, "mLevel", signalLevel(v), "基站信号")
+        // CellIdentity derives its global id in the constructor; refresh it after the fields changed.
+        Reflect.callOrNull(identity, "updateGlobalCellId")
         Reflect.call(info, "setRegistered", v.registered)
         val now = SystemClock.elapsedRealtimeNanos()
         if (Reflect.find(info.javaClass, "setTimeStamp", arrayOf(now)) != null) Reflect.call(info, "setTimeStamp", now)
@@ -112,6 +116,16 @@ object Fakes {
         val read = (Reflect.call(identity, if (nr) "getNci" else if (lte) "getCi" else "getCid") as Number).toLong()
         check(read == v.cid) { "Cell identity readback mismatch" }
         return info
+    }
+
+    /** Signal bars 0–4 from the AOSP default carrier thresholds (NR SS-RSRP, LTE RSRP, GSM RSSI). */
+    fun signalLevel(v: CellSpec): Int {
+        val thresholds = when (v.type) {
+            CellType.NR -> intArrayOf(-110, -90, -80, -65)
+            CellType.LTE -> intArrayOf(-115, -105, -95, -85)
+            CellType.GSM -> intArrayOf(-107, -103, -97, -89)
+        }
+        return thresholds.count { v.dbm >= it }
     }
 
     /**

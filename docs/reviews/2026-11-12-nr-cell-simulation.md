@@ -24,3 +24,22 @@ Android API 29 起提供 NR 类型，字段范围依据 [Android CellIdentityNr 
 测试包：`../releases/Geoshift-3.0.6-NR-test.apk`（包含 arm64-v8a / x86_64），SHA-256：`8fc604cc716cb165786bbb43ceee3bbe2dbce2fcf65067a544daa0e5ad8463f4`。签名证书与既有 3.0.6 一致，zipalign 检查通过。该包用于测试，未发布。不要把编译成功写成设备验证成功；私钥和真实小区信息不要写入记录。
 
 正式版构建：`../releases/Geoshift-3.0.7.apk`，SHA-256 `720aecdd8abf530640250451c22fd6d4c55b4766d8313bb4359a68cab2c12928`。版本号 47，仅包含 arm64-v8a；签名证书与 3.0.6 一致，zipalign 验证通过。正式构建通过，PCI 显示修复后 29 项单元测试通过。
+
+## 复查修复（3.0.7 之后）
+
+- `xposed/Fakes.kt`：Android 10+ 的 `CellSignalStrength*` 把信号格数缓存在 `mLevel`，只改 dBm 时 `getLevel()` 一直是 0（LTE/GSM 同样受影响）。现按 AOSP 默认门限写入 `mLevel`（NR SS-RSRP −110/−90/−80/−65，LTE RSRP −115/−105/−95/−85，GSM RSSI −107/−103/−97/−89）；改完字段后调用 `updateGlobalCellId` 刷新全局小区 ID。
+- `data/DeviceScanner.kt`：NR 扫描的 SS-RSRP 不可用时改用 CSI-RSRP。
+- `data/Models.kt`：环境记录里的小区信号不可用（`Int.MAX_VALUE`）时按 −85 dBm 载入，不再整条丢弃。
+- `ui/mock/SignalScreens.kt`：信号强度留空按 −85 dBm 保存（3.0.7 会报“超出范围”）；填了非数字仍报错。
+- GeoProbe 输出补充每个小区的 dBm 和格数。
+
+验证：`bash tests/run-checks.sh` 30 项通过（新增 `scannedCellWithoutSignalKeepsIdentity`）。Android 15 x86_64 模拟器 + Magisk + Vector 2.2：
+- NR（NCI 45678912345、TAC 12345、PCI 500、NR-ARFCN 627264、信号留空）：getAllCellInfo、requestCellInfoUpdate、CellInfo 回调、ServiceState 查询/回调都返回该身份，dbm=−85、level=2；getCellLocation [12345,-1,0]。编辑页 PCI 正常显示。
+- LTE（CI 123456789、TAC 2222、PCI 100、EARFCN 1850、−100）：各路径一致，level=2；getCellLocation [2222,123456789,0]。
+- GSM（LAC 3333、CID 4444、ARFCN 60、−95）：各路径一致，level=3。
+- 必填项缺失时保存失败、表单保留输入。关闭基站模拟后各路径恢复为模拟器真实小区（310/260）。
+
+测试备注：
+- 用 adb 安装时，若 APK 旁有 `.idsig` 会走增量安装，开机早期 APK 内容未就绪，Vector 无法加载到 system_server（只加载电话/蓝牙进程）。要用 `adb install --no-incremental`。
+- 测试中出现一次 system_server watchdog 重启：android.fg 持有 GNSS 监听锁同步调用 HAL `GnssMeasurementInterface.close`，HAL 回调线程在 `reportMeasurementData` 等同一把锁。死锁环里没有 Geoshift 帧，由反复强停 GeoProbe（注册了 GNSS 原始测量）触发，判断为 AOSP/模拟器 GNSS HAL 问题，未在真机复现。
+- 扫描导入 NR（模拟器无 NR 小区）和 Redmi K70 真机仍未验证。
