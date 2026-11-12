@@ -1,7 +1,9 @@
 package app.geoshift.ui.mock
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -89,6 +91,7 @@ import app.geoshift.ui.theme.Danger
 import app.geoshift.ui.theme.LiveEnd
 import app.geoshift.ui.theme.LiveStart
 import app.geoshift.ui.theme.Warning
+import app.geoshift.ui.theme.palette
 import kotlinx.coroutines.delay
 import java.util.Locale
 import app.geoshift.core.Repeat
@@ -170,18 +173,20 @@ fun MockScreen(
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToggleTile(Icons.Rounded.LocationOn, "单点定位",
-                    if (r.enabled && !r.routeMode) "固定在虚拟位置" else "点击开启", r.enabled && !r.routeMode, Modifier.weight(1f)) {
+                    if (r.enabled && !r.routeMode) "固定在虚拟位置" else "点击开启", r.enabled && !r.routeMode, Modifier.weight(1f),
+                    accentColor = palette.blue) {
                     if (r.enabled && !r.routeMode) vm.run("模拟定位已关闭") { stop() } else vm.run("模拟定位已开启") { startPoint() }
                 }
-                ToggleTile(Icons.Rounded.SportsEsports, "摇杆", if (r.joystick) "悬浮窗已显示" else "拖动圆盘移动", r.joystick, Modifier.weight(1f)) {
+                ToggleTile(Icons.Rounded.SportsEsports, "摇杆", if (r.joystick) "悬浮窗已显示" else "拖动圆盘移动", r.joystick, Modifier.weight(1f),
+                    accentColor = palette.pink) {
                     vm.run(if (r.joystick) "摇杆悬浮窗已关闭" else "摇杆服务已启动") { joystick(!r.joystick) }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToggleTile(Icons.Rounded.Wifi, "Wi-Fi", if (r.wifiEnabled) r.wifi?.ssid ?: "已开启" else "未设置",
-                    r.wifiEnabled, Modifier.weight(1f), hasSubpage = true, onClick = onOpenWifi)
+                    r.wifiEnabled, Modifier.weight(1f), hasSubpage = true, accentColor = palette.teal, onClick = onOpenWifi)
                 ToggleTile(Icons.Rounded.CellTower, "基站", if (r.cellEnabled) "${r.cells.size.coerceAtLeast(1)} 个小区" else "未设置",
-                    r.cellEnabled, Modifier.weight(1f), hasSubpage = true, onClick = onOpenCell)
+                    r.cellEnabled, Modifier.weight(1f), hasSubpage = true, accentColor = palette.purple, onClick = onOpenCell)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToggleTile(Icons.Rounded.SatelliteAlt, "卫星",
@@ -190,12 +195,12 @@ fun MockScreen(
                         s.settings.gnss -> "${s.settings.satellites} 颗卫星"
                         else -> "点击开启"
                     },
-                    s.settings.gnss, Modifier.weight(1f), enabled = s.caps.gnssSimulation) {
+                    s.settings.gnss, Modifier.weight(1f), enabled = s.caps.gnssSimulation, accentColor = palette.green) {
                     val on = !s.settings.gnss
                     vm.run(if (on) "卫星模拟已开启" else "卫星模拟已关闭") { setGnss(on, s.settings.satellites) }
                 }
                 ToggleTile(Icons.Rounded.Radar, "记录环境", "保存基站和 Wi-Fi",
-                    false, Modifier.weight(1f)) {
+                    false, Modifier.weight(1f), accentColor = palette.orange) {
                     captureName = "位置环境 " + formatTime(System.currentTimeMillis(), "MM-dd HH:mm")
                 }
             }
@@ -279,7 +284,11 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
     else Brush.linearGradient(listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surface))
     val fg = if (on) Color.White else MaterialTheme.colorScheme.onSurface
     val sub = if (on) Color.White.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
-    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(shape).background(background).padding(20.dp)) {
+    Column(
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(shape)
+            .let { if (!on) it.border(BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)), shape) else it }
+            .background(background).padding(20.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).clip(CircleShape).background(if (on) Color.White else MaterialTheme.colorScheme.outline))
             Spacer(Modifier.width(8.dp))

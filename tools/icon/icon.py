@@ -11,8 +11,10 @@ import sys
 from PIL import Image, ImageDraw
 
 V = 108.0
-BG_TOP, BG_BOTTOM = "#6F80F8", "#3F4FD4"
-WHITE, FRAME, SHIRT, SKIN, SKIN_FAR, SHORTS = "#FFFFFF", "#FFD45C", "#FF7A6E", "#FFD3BA", "#EDB89C", "#232D63"
+BG_TOP, BG_BOTTOM = "#667EEA", "#764BA2"
+WHITE, FRAME, SHIRT, SKIN, SKIN_FAR, SHORTS = "#FFFFFF", "#FFD166", "#00D2A0", "#FFE0B2", "#F5CBA7", "#3949AB"
+HAIR = "#3E2723"
+HAIR_TIE = "#FF6584"
 
 
 def circle(cx, cy, r):
@@ -33,13 +35,16 @@ GROUND = [
     fill("M0,92 Q54,86 108,92 L108,108 L0,108 Z", WHITE, 0.12),
 ]
 
-# The cyclist, drawn back to front. Designed in the full viewport, then scaled into the safe zone.
+# The cyclist (girl with twin ponytails), drawn back to front. Designed in the full viewport, then scaled into the safe zone.
 RIDER = [
     # speed lines
     stroke("M17.5,47 L27.5,47", WHITE, 2.6, 0.6),
     stroke("M13.5,56 L25,56", WHITE, 2.6, 0.4),
+    # far twin ponytail (flying back and up in the wind)
+    fill("M59,24.5 C53,20.5 45,19 38,22 C43,24 49,25.5 58,26.5 Z", HAIR),
+    stroke("M58.5,24 L59.5,26", HAIR_TIE, 2.2),
     # far leg and shoe
-    stroke("M48.5,46.5 L52.5,58 L47.5,69.5", SKIN_FAR, 4.6),
+    stroke("M48.5,46.5 L52.5,58 L47.5,69.5", SKIN_FAR, 4.4),
     stroke("M45,71 L50,71", WHITE, 3.2),
     # wheels
     stroke(circle(36, 68, 11.5), WHITE, 3.6),
@@ -54,17 +59,21 @@ RIDER = [
     stroke("M42.6,48.9 L50.4,48.9", WHITE, 3.6),
     stroke("M64.9,47.8 L64.5,45 L69.5,43.8", WHITE, 3.2),
     # near leg: thigh and shin, shorts over the thigh, shoe on the pedal
-    stroke("M49,46.5 L59,54 L55.5,65.5", SKIN, 5),
-    stroke("M48.6,46.2 L55,51", SHORTS, 7.2),
+    stroke("M49,46.5 L59,54 L55.5,65.5", SKIN, 4.8),
+    stroke("M48.6,46.2 L55,51", SHORTS, 7.0),
     stroke("M53.2,67 L58.6,67", WHITE, 3.4),
-    # arm (under the torso, so it leaves the shoulder cleanly), torso, sleeve, neck, head, helmet
-    stroke("M59.4,36 Q62,42.8 68.8,44", SKIN, 4.2),
-    stroke("M48.8,45 L59.4,35.2", SHIRT, 9.2),
-    stroke("M59.6,36 L61,39.4", SHIRT, 5.4),
-    stroke("M61.4,32.2 L63.6,29.4", SKIN, 4.2),
+    # near twin ponytail (flying back and lower in the wind)
+    fill("M59.5,27.5 C53,26 46,26.5 40,30 C45,31.5 52,31 58.5,29.5 Z", HAIR),
+    stroke("M58.8,27.8 L59.6,29.8", HAIR_TIE, 2.2),
+    # arm (under the torso, so it leaves the shoulder cleanly), torso (mint jersey), sleeve, neck, head, helmet
+    stroke("M59.4,36 Q62,42.8 68.8,44", SKIN, 4.0),
+    stroke("M48.8,45 L59.4,35.2", SHIRT, 8.8),
+    stroke("M59.6,36 L61,39.4", SHIRT, 5.0),
+    stroke("M61.4,32.2 L63.6,29.4", SKIN, 4.0),
     fill(circle(66, 26.4, 6.5), SKIN),
+    stroke("M62.5,26.8 Q61.5,29.5 63.2,31", HAIR, 1.8),
     fill("M58.9,26.8 C58.4,21.3 62.2,18.3 66.4,18.4 C70.8,18.5 73.8,21.5 74.3,25.3 Z", WHITE),
-    stroke("M61.2,22.4 Q65.6,19.6 71.4,21.6", FRAME, 1.5),
+    stroke("M61.2,22.4 Q65.6,19.6 71.4,21.6", SHIRT, 1.6),
 ]
 
 # Foreground fits the adaptive-icon safe zone (66 dp circle) after this transform about the centre.

@@ -68,17 +68,19 @@ fun SetupScreen(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, o
         Row(Modifier.padding(start = 8.dp, top = 8.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回") } else Spacer(Modifier.width(12.dp))
         }
-        Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(R.drawable.ic_logo), null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(48.dp))
-            Spacer(Modifier.width(14.dp))
-            Column {
-                Text(if (accepted) "权限与模块" else "欢迎使用 Geoshift", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("验证所需权限以继续", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Spacer(Modifier.size(20.dp))
 
         if (!accepted) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(painterResource(R.drawable.ic_logo), null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(72.dp))
+                Spacer(Modifier.size(16.dp))
+                Text("欢迎使用 Geoshift", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.size(4.dp))
+                Text("轻氧活力虚拟定位与环境仿真", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.size(16.dp))
             PortalCard(Modifier.padding(horizontal = 16.dp)) {
                 Text("使用须知", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.size(8.dp))
@@ -95,6 +97,16 @@ fun SetupScreen(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, o
             }
             return@Column
         }
+
+        Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_logo), null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.size(52.dp))
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text("权限与模块", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("验证所需系统权限与框架环境", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.size(20.dp))
 
         Step(1, "应用权限", "定位与通知是必需的，其余按需授予")
         PortalCard(Modifier.padding(horizontal = 16.dp)) {

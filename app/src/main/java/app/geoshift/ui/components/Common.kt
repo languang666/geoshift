@@ -2,6 +2,7 @@ package app.geoshift.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -70,13 +71,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Inset grouped card (iOS list section): rounded, borderless, on the grouped background. */
+/** Inset grouped card: rounded, subtle border, on the background. */
 @Composable
 fun PortalCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val shape = MaterialTheme.shapes.large
     Surface(
         modifier = modifier.fillMaxWidth().clip(shape).let { if (onClick != null) it.clickable(onClick = onClick) else it },
         shape = shape,
+        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Column(Modifier.padding(16.dp), content = content)
@@ -225,7 +227,13 @@ fun SettingRow(
 /** Inset grouped list of [SettingRow]s. */
 @Composable
 fun SettingGroup(content: @Composable ColumnScope.() -> Unit) {
-    Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
+    val shape = MaterialTheme.shapes.large
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = shape,
+        border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
         Column(content = content)
     }
 }
@@ -247,13 +255,15 @@ fun ToggleTile(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     hasSubpage: Boolean = false,
+    accentColor: Color? = null,
     onClick: () -> Unit,
 ) {
-    val accent = palette.green
+    val accent = accentColor ?: palette.green
     val shape = MaterialTheme.shapes.large
     Surface(
         modifier = modifier.clip(shape).clickable(enabled = enabled, onClick = onClick),
         shape = shape,
+        border = BorderStroke(0.6.dp, if (on) accent.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
         color = MaterialTheme.colorScheme.surface,
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -264,7 +274,7 @@ fun ToggleTile(
                 Icon(icon, null, Modifier.size(21.dp),
                     tint = when {
                         on -> Color.White
-                        enabled -> MaterialTheme.colorScheme.onSurface
+                        enabled -> accentColor ?: MaterialTheme.colorScheme.onSurface
                         else -> MaterialTheme.colorScheme.outline
                     })
             }

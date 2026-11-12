@@ -268,14 +268,14 @@ private fun TabBar(selected: Tab, simulating: Boolean, hazeState: dev.chrisbanes
     // Built once per theme: a new style object on every recomposition would make Haze redo its setup.
     val barStyle = remember(dark) {
         GlassStyle.regular.then {
-            tint(if (dark) Color.Black.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.22f))
+            tint(if (dark) Color(0xFF191726).copy(alpha = 0.55f) else Color(0xFFF7F8FE).copy(alpha = 0.65f))
             shape(CircleShape)
         }
     }
     val lensStyle = remember(dark) {
         GlassStyle.regular.then {
             shape(CircleShape)
-            tint(if (dark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.42f))
+            tint(if (dark) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.65f))
         }
     }
     BoxWithConstraints(

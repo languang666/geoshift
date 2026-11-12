@@ -18,11 +18,12 @@ import androidx.compose.ui.unit.sp
 import app.geoshift.data.ThemeMode
 
 /*
- * A system-app look in the style of current iOS: grouped backgrounds, the system tint colours,
- * large titles and generously rounded, borderless cards. Colours follow the iOS system palette.
+ * Fresh & Energetic (轻氧活力风) design theme:
+ * Clean, translucent glass surfaces, energetic pastel accents (mint green, periwinkle, coral pink, sunshine gold),
+ * rounded cards with subtle depth, and vibrant status gradients.
  */
 
-/** Tint colours (system palette, light / dark variants picked by [Palette]). */
+/** Tint colours (Fresh & Energetic palette, light / dark variants picked by [Palette]). */
 class Palette(
     val blue: Color, val green: Color, val red: Color, val orange: Color, val yellow: Color,
     val teal: Color, val indigo: Color, val purple: Color, val pink: Color, val gray: Color,
@@ -37,87 +38,87 @@ class Palette(
 )
 
 private val LightPalette = Palette(
-    blue = Color(0xFF007AFF), green = Color(0xFF34C759), red = Color(0xFFFF3B30), orange = Color(0xFFFF9500),
-    yellow = Color(0xFFFFCC00), teal = Color(0xFF30B0C7), indigo = Color(0xFF5856D6), purple = Color(0xFFAF52DE),
-    pink = Color(0xFFFF2D55), gray = Color(0xFF8E8E93),
-    separator = Color(0x4A3C3C43), fill = Color(0x1F767680),
-    glass = Color(0xEDFCFCFD), glassEdge = Color(0xB3FFFFFF), dark = false,
+    blue = Color(0xFF5B67EA), green = Color(0xFF00C897), red = Color(0xFFFF5252), orange = Color(0xFFFF9F43),
+    yellow = Color(0xFFFFD166), teal = Color(0xFF06D6A0), indigo = Color(0xFF6C5CE7), purple = Color(0xFFA29BFE),
+    pink = Color(0xFFFF6584), gray = Color(0xFF8C8CA1),
+    separator = Color(0x1F5B67EA), fill = Color(0x126C5CE7),
+    glass = Color(0xF2F8F9FE), glassEdge = Color(0xD9FFFFFF), dark = false,
 )
 
 private val DarkPalette = Palette(
-    blue = Color(0xFF0A84FF), green = Color(0xFF30D158), red = Color(0xFFFF453A), orange = Color(0xFFFF9F0A),
-    yellow = Color(0xFFFFD60A), teal = Color(0xFF40C8E0), indigo = Color(0xFF5E5CE6), purple = Color(0xFFBF5AF2),
-    pink = Color(0xFFFF375F), gray = Color(0xFF8E8E93),
-    separator = Color(0x99545458), fill = Color(0x3D767680),
-    glass = Color(0xE62C2C2E), glassEdge = Color(0x24FFFFFF), dark = true,
+    blue = Color(0xFF7C88FF), green = Color(0xFF26E7A6), red = Color(0xFFFF6B6B), orange = Color(0xFFFFA94D),
+    yellow = Color(0xFFFFE066), teal = Color(0xFF38D9A9), indigo = Color(0xFF9775FA), purple = Color(0xFFB197FC),
+    pink = Color(0xFFFF8787), gray = Color(0xFFA6A7B5),
+    separator = Color(0x33A29BFE), fill = Color(0x2E7C88FF),
+    glass = Color(0xE61B192A), glassEdge = Color(0x33A29BFE), dark = true,
 )
 
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 
-/** Brand / action colour. */
-val Indigo = Color(0xFF007AFF)
-/** "Simulating" green: everything that shows the simulation is running uses it. */
-val Success = Color(0xFF34C759)
-val Warning = Color(0xFFFF9500)
-val Danger = Color(0xFFFF3B30)
+/** Brand / action colour (Energetic Periwinkle). */
+val Indigo = Color(0xFF5B67EA)
+/** "Simulating" green: vibrant fresh mint green. */
+val Success = Color(0xFF00C897)
+val Warning = Color(0xFFFF9F43)
+val Danger = Color(0xFFFF5252)
 
-/** Running-state gradient (status card). */
-val LiveStart = Color(0xFF30D158)
-val LiveEnd = Color(0xFF00A86B)
+/** Running-state gradient (status card): Fresh Mint to Ocean Cyan. */
+val LiveStart = Color(0xFF00D2A0)
+val LiveEnd = Color(0xFF05B6D4)
 
 private val Light = lightColorScheme(
     primary = LightPalette.blue,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE5F1FF),
-    onPrimaryContainer = Color(0xFF00408A),
-    secondary = Color(0xFF8E8E93),
-    secondaryContainer = Color(0xFFE9E9EB),
-    onSecondaryContainer = Color(0xFF1C1C1E),
+    primaryContainer = Color(0xFFEEF0FE),
+    onPrimaryContainer = Color(0xFF2C3575),
+    secondary = Color(0xFF8C8CA1),
+    secondaryContainer = Color(0xFFEFF1F8),
+    onSecondaryContainer = Color(0xFF2D2E3A),
     tertiary = LightPalette.green,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFE3F8E8),
-    onTertiaryContainer = Color(0xFF0B5A21),
-    background = Color(0xFFF2F2F7),
-    onBackground = Color.Black,
+    tertiaryContainer = Color(0xFFE2F9F3),
+    onTertiaryContainer = Color(0xFF005B44),
+    background = Color(0xFFF7F8FC),
+    onBackground = Color(0xFF1E1F29),
     surface = Color.White,
-    onSurface = Color.Black,
-    surfaceVariant = Color(0xFFF2F2F7),
-    onSurfaceVariant = Color(0xFF8A8A8E),
+    onSurface = Color(0xFF1E1F29),
+    surfaceVariant = Color(0xFFF0F2FA),
+    onSurfaceVariant = Color(0xFF787A91),
     surfaceContainerLowest = Color.White,
     surfaceContainerLow = Color.White,
-    surfaceContainer = Color(0xFFF2F2F7),
-    surfaceContainerHigh = Color(0xFFE9E9EB),
-    surfaceContainerHighest = Color(0xFFE3E3E8),
-    outline = Color(0xFFC4C4C7),
-    outlineVariant = Color(0xFFE5E5EA),
+    surfaceContainer = Color(0xFFF7F8FC),
+    surfaceContainerHigh = Color(0xFFEFF1F8),
+    surfaceContainerHighest = Color(0xFFE5E8F3),
+    outline = Color(0xFFC7CBDD),
+    outlineVariant = Color(0xFFE4E7F2),
     error = LightPalette.red,
 )
 
 private val Dark = darkColorScheme(
     primary = DarkPalette.blue,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFF0A2A4D),
-    onPrimaryContainer = Color(0xFFBFDCFF),
-    secondary = Color(0xFF98989F),
-    secondaryContainer = Color(0xFF2C2C2E),
-    onSecondaryContainer = Color(0xFFEBEBF5),
+    primaryContainer = Color(0xFF28264A),
+    onPrimaryContainer = Color(0xFFD8DCFF),
+    secondary = Color(0xFFA6A7B5),
+    secondaryContainer = Color(0xFF262438),
+    onSecondaryContainer = Color(0xFFEDEDF5),
     tertiary = DarkPalette.green,
     onTertiary = Color.Black,
-    tertiaryContainer = Color(0xFF0E3A1C),
-    onTertiaryContainer = Color(0xFFB4F0C4),
-    background = Color.Black,
+    tertiaryContainer = Color(0xFF0E382D),
+    onTertiaryContainer = Color(0xFFB8F3E2),
+    background = Color(0xFF12111D),
     onBackground = Color.White,
-    surface = Color(0xFF1C1C1E),
+    surface = Color(0xFF1D1B2D),
     onSurface = Color.White,
-    surfaceVariant = Color(0xFF1C1C1E),
-    onSurfaceVariant = Color(0xFF98989F),
-    surfaceContainerLowest = Color.Black,
-    surfaceContainerLow = Color(0xFF1C1C1E),
-    surfaceContainer = Color(0xFF1C1C1E),
-    surfaceContainerHigh = Color(0xFF2C2C2E),
-    surfaceContainerHighest = Color(0xFF3A3A3C),
-    outline = Color(0xFF5A5A5E),
-    outlineVariant = Color(0xFF38383A),
+    surfaceVariant = Color(0xFF26233B),
+    onSurfaceVariant = Color(0xFFA7A8BA),
+    surfaceContainerLowest = Color(0xFF100F1A),
+    surfaceContainerLow = Color(0xFF181626),
+    surfaceContainer = Color(0xFF1D1B2D),
+    surfaceContainerHigh = Color(0xFF27243C),
+    surfaceContainerHighest = Color(0xFF353150),
+    outline = Color(0xFF5A567D),
+    outlineVariant = Color(0xFF36334D),
     error = DarkPalette.red,
 )
 

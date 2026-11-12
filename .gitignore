@@ -5,3 +5,6 @@ app/build/
 local.properties
 *.apk
 *.idsig
+__pycache__/
+*.pyc
+tools/icon/preview.png
