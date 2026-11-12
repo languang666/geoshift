@@ -82,9 +82,12 @@ class Store(context: Context) {
     private val settingsFile = JsonFile(dir, "settings.json", Settings.serializer()) { Settings() }
     private val runtimeFile = JsonFile(dir, "runtime.json", Runtime.serializer()) { Runtime() }
     private val logFile = JsonFile(dir, "log.json", ListSerializer(LogEntry.serializer())) { emptyList() }
-    /** Kept apart from settings so it never ends up in an export. */
-    private val keyFile = JsonFile(dir, "map-key.json", kotlinx.serialization.serializer<String>()) { "" }
-    /** AMap Android (SDK) key: official map, search and routes. Also never exported. */
+    init {
+        // The AMap Web service key (3.1.0 and earlier) is no longer used.
+        File(dir, "map-key.json").delete()
+    }
+
+    /** AMap Android (SDK) key: official map, search and routes. Kept apart from settings so it never ends up in an export. */
     private val sdkKeyFile = JsonFile(dir, "amap-sdk-key.json", kotlinx.serialization.serializer<String>()) { "" }
 
     private val _settings = MutableStateFlow(settingsFile.read())
@@ -97,9 +100,6 @@ class Store(context: Context) {
 
     private val _logs = MutableStateFlow(logFile.read())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
-
-    private val _mapKey = MutableStateFlow(keyFile.read())
-    val mapKey: StateFlow<String> = _mapKey.asStateFlow()
 
     private val _sdkKey = MutableStateFlow(sdkKeyFile.read())
     val sdkKey: StateFlow<String> = _sdkKey.asStateFlow()
@@ -125,11 +125,6 @@ class Store(context: Context) {
         _runtime.value = next
         if (persist) runtimeFile.write(next)
         return next
-    }
-
-    @Synchronized fun setMapKey(key: String) {
-        keyFile.write(key)
-        _mapKey.value = key
     }
 
     @Synchronized fun setSdkKey(key: String) {

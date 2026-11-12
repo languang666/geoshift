@@ -41,9 +41,8 @@ data class AppState(
     val environments: List<EnvironmentRecord>,
     val logs: List<LogEntry>,
     val reports: Map<String, Report>,
-    val mapKeyConfigured: Boolean,
     /** AMap Android key saved: official AMap map, search and routes. */
-    val sdkKeyConfigured: Boolean = false,
+    val sdkKeyConfigured: Boolean,
 ) {
     /** The selected route, looked up once per state. */
     val currentRouteRecord: SavedRoute? by lazy { routes.firstOrNull { it.id == runtime.routeId } }
@@ -69,11 +68,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<AppState?> = combine(
         combine(store.settings, store.runtime, engine.caps, ::Triple),
         records,
-        combine(store.logs, engine.bridge.reports, store.mapKey, ::Triple),
-        store.sdkKey,
-    ) { (settings, runtime, caps), r, (logs, reports, key), sdkKey ->
+        combine(store.logs, engine.bridge.reports, store.sdkKey, ::Triple),
+    ) { (settings, runtime, caps), r, (logs, reports, sdkKey) ->
         AppState(Geoshift.VERSION, settings, runtime, caps, r.places, r.routes, r.wifi, r.cells, r.environments, logs, reports,
-            key.isNotEmpty(), sdkKey.isNotEmpty())
+            sdkKey.isNotEmpty())
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)

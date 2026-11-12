@@ -25,7 +25,6 @@ import app.geoshift.core.SimConfig
 import app.geoshift.core.WifiSpec
 import app.geoshift.core.mockFlag
 import app.geoshift.core.simplifyRoute
-import app.geoshift.data.net.Amap
 import app.geoshift.data.net.AmapSdk
 import app.geoshift.data.net.IpLocator
 import app.geoshift.data.net.OpenGeocoder
@@ -62,7 +61,7 @@ class Geoshift private constructor(context: Context) {
     val bridge = FrameworkBridge(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val amapSdk = AmapSdk(app) { store.sdkKey.value }
-    val amap = Amap({ store.mapKey.value }, amapSdk)
+    private val amap get() = amapSdk
     val router = RoadRouter(amap)
     val scanner = DeviceScanner(app) { capabilities() }
 
@@ -160,6 +159,22 @@ class Geoshift private constructor(context: Context) {
         }
     }
 
+    private val _realPosition = MutableStateFlow<LatLon?>(null)
+    /** The phone's last known real position (kept while simulating, when it cannot be read). */
+    val realPosition: StateFlow<LatLon?> = _realPosition.asStateFlow()
+
+    /** Quick, non-blocking refresh of [realPosition] from the system's last fixes; only while not simulating. */
+    @SuppressLint("MissingPermission")
+    fun refreshRealPosition() {
+        if (running || !capabilities().preciseLocation) return
+        val lm = app.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
+        val best = runCatching { lm.getProviders(true) }.getOrDefault(emptyList())
+            .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+            .filter { !it.mockFlag }
+            .maxByOrNull { it.elapsedRealtimeNanos } ?: return
+        LatLon(best.latitude, best.longitude).takeIf { it.valid }?.let { _realPosition.value = it }
+    }
+
     /** Real GPS fix (simulation must be off). Blocks up to 20 s. */
     @SuppressLint("MissingPermission")
     fun deviceLocation(): LatLon {
@@ -182,7 +197,7 @@ class Geoshift private constructor(context: Context) {
             runCatching { lm.removeUpdates(listener) }
         }
         val fix = result.get() ?: fail("暂未获取新的 GPS 位置，请到室外后重试。")
-        return LatLon(fix.latitude, fix.longitude)
+        return LatLon(fix.latitude, fix.longitude).also { _realPosition.value = it }
     }
 
     fun setLocation(p: LatLon) {
@@ -480,11 +495,6 @@ class Geoshift private constructor(context: Context) {
         }
     }
 
-    fun setMapKey(key: String) {
-        Validate.mapKey(key.trim())
-        store.setMapKey(key.trim())
-    }
-
     fun clearAll() {
         stop()
         JoystickService.command(app, false)
@@ -510,7 +520,7 @@ class Geoshift private constructor(context: Context) {
         val q = query.trim()
         if (q.isEmpty() || q.length > 200) fail("请输入 1–200 字的地点关键词。")
         requireOnline()
-        if (!amap.available) return OpenGeocoder.search(q, near)
+        if (!amap.ready) return OpenGeocoder.search(q, near)
         // AMap has almost no overseas places; try OpenStreetMap before reporting nothing.
         return amap.search(q, near).ifEmpty { runCatching { OpenGeocoder.search(q, near) }.getOrDefault(emptyList()) }
     }
@@ -518,10 +528,10 @@ class Geoshift private constructor(context: Context) {
     /** Address text for a point; never throws (it is looked up automatically as the position changes). */
     fun reverseGeocode(p: LatLon): String {
         if (!store.settings.value.privacyAccepted) return ""
-        if (!amap.available) return runCatching { OpenGeocoder.reverse(p) }.getOrDefault("")
+        if (!amap.ready) return runCatching { OpenGeocoder.reverse(p) }.getOrDefault("")
         return try {
             amap.reverse(p).ifBlank { runCatching { OpenGeocoder.reverse(p) }.getOrDefault("") }
-        } catch (e: Amap.AmapError) {
+        } catch (e: AmapSdk.AmapError) {
             if (e.outOfCoverage) runCatching { OpenGeocoder.reverse(p) }.getOrDefault("") else ""
         } catch (_: Exception) {
             ""
@@ -530,8 +540,9 @@ class Geoshift private constructor(context: Context) {
 
     fun checkMapKey(): String {
         requireOnline()
-        try { amap.reverse(LatLon(39.9042, 116.4074)) } catch (e: Amap.AmapError) { fail(e.message.orEmpty()) }
-        return "${amap.via}验证通过，高德搜索、地址和路线可用"
+        if (!amap.ready) fail("还没有填写高德 Key。")
+        try { amap.reverse(LatLon(39.9042, 116.4074)) } catch (e: AmapSdk.AmapError) { fail(e.message.orEmpty()) }
+        return "高德 Key 验证通过，官方地图、搜索、地址和路线可用"
     }
 
     private var keyCheck: Pair<String, String?>? = null
@@ -547,7 +558,7 @@ class Geoshift private constructor(context: Context) {
         val problem = try {
             amapSdk.reverse(LatLon(39.9042, 116.4074))
             null
-        } catch (e: Amap.AmapError) {
+        } catch (e: AmapSdk.AmapError) {
             if (e.code.toIntOrNull() in 1001..1013) e.message else return null
         } catch (_: Exception) {
             return null
@@ -568,7 +579,7 @@ class Geoshift private constructor(context: Context) {
      */
     fun checkExitIp(): String {
         requireOnline()
-        val r = IpLocator.lookup(amap)
+        val r = IpLocator.lookup()
         val where = "出口 IP${if (r.ip.isNotEmpty()) " ${r.ip}" else ""} 定位：${r.place.ifEmpty { "未知" }}（${r.source}）"
         val run = store.runtime.value
         if (!run.enabled) return "$where。当前未在模拟，仅供参考。"

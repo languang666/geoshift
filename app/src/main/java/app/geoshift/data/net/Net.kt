@@ -52,119 +52,6 @@ fun httpText(url: String, allowStatus: Int = -1, maxBytes: Int = 8 * 1024 * 1024
 
 private fun enc(v: String) = URLEncoder.encode(v, "UTF-8")
 
-/**
- * AMap data (optional): search, address, road routes and IP location in China. The Android key
- * (official SDK, [sdk]) is preferred; the older Web service key ([key]) keeps working on its own.
- */
-class Amap(private val key: () -> String, private val sdk: AmapSdk) {
-    class AmapError(val code: String, message: String) : Exception(message) {
-        /** The point lies outside AMap's coverage (abroad). */
-        val outOfCoverage get() = code == "20011" || code == "20800" || code == AmapSdk.OUT_OF_SERVICE
-    }
-
-    val available get() = sdk.ready || key().isNotEmpty()
-    /** Which key answers: "Android Key", "Web 服务 Key" or "" (none). */
-    val via get() = if (sdk.ready) "Android Key" else if (key().isNotEmpty()) "Web 服务 Key" else ""
-
-    private fun lonLat(p: LatLon) = String.format(Locale.ROOT, "%.6f,%.6f", p.lon, p.lat)
-
-    private fun get(path: String, query: String): JSONObject {
-        val k = key().ifEmpty { fail("地点搜索和地址查询需要高德 Web 服务 Key，请在设置中填写。") }
-        val json = runCatching { JSONObject(httpText("https://restapi.amap.com$path?key=${enc(k)}&$query", maxBytes = 2 * 1024 * 1024)) }
-            .getOrElse { if (it is UserError) throw it else fail("地图服务返回了无法识别的内容。") }
-        if (json.optString("status") != "1") throw AmapError(json.optString("infocode"), explain(json.optString("infocode"), json.optString("info", "未知错误")))
-        return json
-    }
-
-    fun search(query: String, near: LatLon? = null): List<Place> {
-        if (sdk.ready) return sdk.search(query, near)
-        val tips = get("/v3/assistant/inputtips", "keywords=${enc(query)}&datatype=all").optJSONArray("tips") ?: JSONArray()
-        return (0 until tips.length()).mapNotNull { i ->
-            val tip = tips.optJSONObject(i) ?: return@mapNotNull null
-            val v = tip.optString("location").split(",")
-            if (v.size != 2) return@mapNotNull null
-            val gcj = LatLon(v[1].toDoubleOrNull() ?: return@mapNotNull null, v[0].toDoubleOrNull() ?: return@mapNotNull null)
-            if (!gcj.valid) return@mapNotNull null
-            Place(tip.optString("name"), tip.optString("district") + tip.optString("address").takeUnless { it == "[]" }.orEmpty(), Geo.gcjToWgs(gcj))
-        }
-    }
-
-    fun reverse(p: LatLon): String {
-        if (sdk.ready) return sdk.reverse(p)
-        val regeo = get("/v3/geocode/regeo", "extensions=base&location=${enc(lonLat(Geo.wgsToGcj(p)))}").optJSONObject("regeocode")
-        return regeo?.optString("formatted_address").orEmpty().takeUnless { it == "[]" }.orEmpty()
-    }
-
-    /** Road path a → b (WGS-84). */
-    fun direction(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
-        if (sdk.ready) return sdk.direction(profile, a, b)
-        var od = "origin=${enc(lonLat(Geo.wgsToGcj(a)))}&destination=${enc(lonLat(Geo.wgsToGcj(b)))}"
-        val path = when (profile) {
-            RoadProfile.CAR -> "/v3/direction/driving".also { od += "&extensions=base" }
-            RoadProfile.BIKE -> "/v5/direction/bicycling".also { od += "&show_fields=polyline" }
-            else -> "/v3/direction/walking"
-        }
-        val steps = get(path, od).optJSONObject("route")?.optJSONArray("paths")?.optJSONObject(0)?.optJSONArray("steps") ?: JSONArray()
-        val out = ArrayList<LatLon>()
-        for (i in 0 until steps.length()) {
-            for (pair in steps.optJSONObject(i)?.optString("polyline").orEmpty().split(";")) {
-                val v = pair.split(",")
-                if (v.size != 2) continue
-                val gcj = LatLon(v[1].toDoubleOrNull() ?: continue, v[0].toDoubleOrNull() ?: continue)
-                if (gcj.valid) out.add(Geo.gcjToWgs(gcj))
-            }
-        }
-        if (out.size < 2) fail("高德没有找到这两点之间的道路，可改用直线连接。")
-        return out
-    }
-
-    /** Province/city of the request's exit IP, or null for overseas IPs. */
-    fun ip(): IpResult? {
-        if (key().isEmpty()) return null
-        val r = runCatching { get("/v3/ip", "") }.getOrNull() ?: return null
-        val rect = r.optString("rectangle")
-        if (rect.isEmpty() || rect == "[]") return null
-        val clean = { s: String -> s.takeUnless { it == "[]" }.orEmpty().trim() }
-        val province = clean(r.optString("province"))
-        val city = clean(r.optString("city"))
-        val place = (province + if (city.isEmpty() || city == province) "" else " $city").trim()
-        val corners = rect.split(";").map { it.split(",") }
-        val centre = if (corners.size == 2 && corners.all { it.size == 2 }) runCatching {
-            Geo.gcjToWgs(LatLon((corners[0][1].toDouble() + corners[1][1].toDouble()) / 2, (corners[0][0].toDouble() + corners[1][0].toDouble()) / 2))
-        }.getOrNull() else null
-        return IpResult("", place, centre, "高德")
-    }
-
-    companion object {
-        /** AMap error codes as actionable Chinese messages. */
-        fun explain(code: String, info: String): String {
-            val hint = when (code) {
-                "10001" -> "Key 不正确或已过期，请检查是否完整复制了 32 位 Key。"
-                "10002" -> "此 Key 没有开通该服务，请在高德控制台确认 Key 的服务平台是「Web 服务」。"
-                "10003" -> "今日调用次数已用完，明天会恢复。"
-                "10004" -> "请求太频繁，请稍后再试。"
-                "10005" -> "IP 白名单不匹配：请在高德控制台把这个 Key 的 IP 白名单清空。"
-                "10006" -> "绑定的域名不匹配，请在控制台去掉域名限制。"
-                "10007" -> "Key 开启了「数字签名」，请在高德控制台关闭数字签名。"
-                "10008" -> "安全码校验失败：这是 Android/iOS 平台的 Key，请另外创建一个「Web 服务」平台的 Key。"
-                "10009" -> "Key 平台不匹配：填入的是 Android 平台 Key，请改填「Web 服务」平台的 Key。"
-                "10010" -> "当前 IP 访问超限，请稍后再试。"
-                "10012" -> "此 Key 没有该接口的权限。"
-                "10013" -> "此 Key 已被删除，请重新创建。"
-                "10044", "10045" -> "账号或 Key 的日调用量已超限。"
-                "20000", "20001" -> "请求参数有误，请重试；若持续出现请反馈。"
-                "20011" -> "该地点在海外，高德个人 Key 没有海外权限。"
-                "20800" -> "该地点不在中国境内，高德无法规划路线。"
-                "20801" -> "起点或终点附近没有道路，请把点放到路上。"
-                "20802" -> "两点之间找不到可通行的路线。"
-                "20803" -> "两点距离太远，请分段添加途经点。"
-                else -> ""
-            }
-            return "高德返回错误 $code（$info）" + if (hint.isEmpty()) "" else "：$hint"
-        }
-    }
-}
-
 /** Keyless search (Photon) and address lookup (Nominatim) on OpenStreetMap data. */
 object OpenGeocoder {
     private var lastNominatim = 0L
@@ -215,9 +102,8 @@ object OpenGeocoder {
 data class IpResult(val ip: String, val place: String, val position: LatLon?, val source: String)
 
 object IpLocator {
-    /** AMap (accurate for mainland IPs) when a key is set, otherwise ipwho.is (worldwide, keyless). */
-    fun lookup(amap: Amap): IpResult {
-        amap.ip()?.let { return it }
+    /** ipwho.is: worldwide, keyless. */
+    fun lookup(): IpResult {
         val r = runCatching { JSONObject(httpText("https://ipwho.is/", maxBytes = 256 * 1024)) }.getOrElse { if (it is UserError) throw it else fail("IP 定位服务返回了无法识别的内容。") }
         if (!r.optBoolean("success", true) && r.has("message")) fail("IP 定位服务返回错误：${r.optString("message")}")
         val clean = { s: String -> s.takeUnless { it == "[]" }.orEmpty().trim() }
@@ -231,11 +117,11 @@ object IpLocator {
 }
 
 /**
- * Snaps route sections to real roads: AMap route planning with a key (better road data in China),
+ * Snaps route sections to real roads: AMap route planning with the user's key (better road data in China),
  * otherwise the public OSRM servers of FOSSGIS (OpenStreetMap). Coordinates in and out are WGS-84.
  */
-class RoadRouter(private val amap: Amap) {
-    val source get() = if (amap.available) "高德" else "OpenStreetMap"
+class RoadRouter(private val amap: AmapSdk) {
+    val source get() = if (amap.ready) "高德" else "OpenStreetMap"
     private val cache = object : LinkedHashMap<String, List<LatLon>>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<LatLon>>) = size > 200
     }
@@ -244,11 +130,11 @@ class RoadRouter(private val amap: Amap) {
     /** Road path from a to b, starting at a and ending at b. Blocking. */
     fun section(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
         if (!profile.road) return listOf(a, b)
-        val useAmap = amap.available
+        val useAmap = amap.ready
         val key = String.format(Locale.ROOT, "%s|%s|%.6f,%.6f|%.6f,%.6f", if (useAmap) "amap" else "osrm", profile.name, a.lat, a.lon, b.lat, b.lon)
         synchronized(cache) { cache[key]?.let { return it } }
         val road = if (useAmap) {
-            try { viaAmap(profile, a, b) } catch (e: Amap.AmapError) {
+            try { viaAmap(profile, a, b) } catch (e: AmapSdk.AmapError) {
                 // Overseas sections: AMap refuses them; OpenStreetMap covers them.
                 if (e.outOfCoverage) osrm(profile, a, b) else throw UserError(e.message ?: "高德路径规划失败。")
             }

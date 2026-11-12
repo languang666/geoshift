@@ -95,7 +95,6 @@ fun AmapKeyScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
     var value by rememberSaveable { mutableStateOf("") }
     var agreed by rememberSaveable { mutableStateOf(false) }
     var faq by rememberSaveable { mutableStateOf(false) }
-    var webKey by remember { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
     val configured = s.sdkKeyConfigured
 
@@ -232,25 +231,8 @@ fun AmapKeyScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
             Text("高德官方说明：", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { open(GUIDE_URL) }, contentPadding = PaddingValues(0.dp)) { Text("获取 Android Key（高德文档）") }
         }
-
-        // ---- Web service key (older, optional) ----
-        Row(
-            Modifier.padding(start = 20.dp, top = 14.dp, end = 16.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { webKey = true }
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Web 服务 Key（旧方式）", style = MaterialTheme.typography.titleSmall)
-                Text(if (s.mapKeyConfigured) "已设置。填了 Android Key 后不再需要" else "只改善搜索和路线，不改变地图。一般不需要",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline)
-        }
     }
 
-    if (webKey) MapKeyDialog(configured = s.mapKeyConfigured, onDismiss = { webKey = false }, onMessage = vm::toast,
-        onTest = ::verify,
-        onSave = { key -> vm.run(if (key.isEmpty()) "已清除 Web 服务 Key" else "Web 服务 Key 已保存") { setMapKey(key) } })
     if (clear) ConfirmDialog("清除高德 Key", "清除后「高德地图」图层改回瓦片地图，搜索和路线改用免 Key 服务。", confirm = "清除", danger = true,
         onDismiss = { clear = false }) {
         vm.run("已清除高德 Key") { setSdkKey("") }

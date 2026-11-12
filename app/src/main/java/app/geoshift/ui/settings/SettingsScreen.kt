@@ -199,11 +199,7 @@ fun SettingsScreen(
             SettingRow("地图图层", null, icon = Icons.Rounded.Layers, value = st.mapSource.label, onClick = { choice = "mapSource" })
             RowDivider()
             SettingRow("高德 Key", "可选，填写后使用高德官方地图、搜索和路线", icon = Icons.Rounded.Key,
-                value = when {
-                    s.sdkKeyConfigured -> "已设置"
-                    s.mapKeyConfigured -> "仅 Web 服务"
-                    else -> "未设置"
-                }, onClick = onOpenAmapKey)
+                value = if (s.sdkKeyConfigured) "已设置" else "未设置", onClick = onOpenAmapKey)
             RowDivider()
             SettingRow("外观", null, icon = Icons.Rounded.Palette,
                 value = st.theme.label, onClick = { choice = "theme" })

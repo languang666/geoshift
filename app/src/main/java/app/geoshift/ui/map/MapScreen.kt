@@ -76,6 +76,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material.icons.rounded.NearMe
+import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -161,6 +163,14 @@ fun MapScreen(
     // With the user's AMap Android key the AMap layer is the official SDK map; tiles otherwise.
     val sdk = vm.engine.amapSdk
     val sdkKey by vm.engine.store.sdkKey.collectAsState()
+    val realPosition by vm.engine.realPosition.collectAsState()
+    // The real position can only be read while not simulating; it is kept (and shown) meanwhile.
+    LaunchedEffect(r.enabled) {
+        while (!r.enabled) {
+            withContext(Dispatchers.IO) { vm.engine.refreshRealPosition() }
+            delay(15_000)
+        }
+    }
     var sdkFailed by remember(sdkKey) { mutableStateOf(false) }
     val officialAmap = s.settings.mapSource == MapSource.AMAP && sdkKey.isNotEmpty() && s.settings.privacyAccepted &&
         sdk.mapSupported && !sdkFailed
@@ -247,7 +257,7 @@ fun MapScreen(
     Box(Modifier.fillMaxSize()) {
         if (officialAmap) AmapMap(
             modifier = Modifier.fillMaxSize(), sdk = sdk, keyRevision = sdkKey,
-            virtual = r.position, simulating = r.enabled,
+            virtual = r.position, simulating = r.enabled, real = realPosition,
             selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
             dark = isDark(s.settings.theme), camera = camera, center = centerRequest,
@@ -258,7 +268,7 @@ fun MapScreen(
             onFailure = { message -> sdkFailed = true; vm.toast("$message，已改用高德瓦片地图") },
             onSlow = { sdkFailed = true; vm.toast("高德官方地图迟迟没有加载，已暂时改用瓦片地图。可检查网络，或到「设置 → 高德 Key」点「验证 Key」") },
         ) else if (vectorMap) VectorMap(
-            modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled,
+            modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled, real = realPosition,
             selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
             online = s.settings.privacyAccepted, dark = isDark(s.settings.theme), source = s.settings.mapSource,
@@ -270,6 +280,7 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize(),
             virtual = r.position,
             simulating = r.enabled,
+            real = realPosition,
             selected = if (editing) null else selected,
             route = if (editing) editRoute else currentRoute,
             routeEditing = editing,
@@ -409,7 +420,7 @@ fun MapScreen(
                 }
             }
             ToolGroup {
-                MapTool(Icons.Rounded.PinDrop, "回到虚拟位置") { onCenter(CenterRequest(r.position)) }
+                MapTool(Icons.Rounded.PinDrop, "回到模拟位置") { onCenter(CenterRequest(r.position)) }
                 ToolDivider()
                 MapTool(Icons.Rounded.MyLocation, "真实位置（先停止模拟）") {
                     vm.run<LatLon>(onDone = { select(it); onCenter(CenterRequest(it, 16.0)) }) { deviceLocation() }
@@ -487,7 +498,7 @@ fun MapScreen(
                     running = r.enabled,
                     onClose = { selected = null },
                     onSetVirtual = {
-                        vm.run(if (r.enabled) "位置切换成功" else "已设置为当前虚拟位置", onDone = { _: Unit -> selected = null }) { setLocation(sel) }
+                        vm.run(if (r.enabled) "已移到这里" else "已设为模拟点，点开始即从这里模拟", onDone = { _: Unit -> selected = null }) { setLocation(sel) }
                     },
                     onStart = { vm.run("模拟定位已开启", onDone = { _: Unit -> selected = null }) { startPoint(sel) } },
                     onRouteTo = {
@@ -829,28 +840,47 @@ private fun PreviewCard(
                 Spacer(Modifier.size(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CoordinateRow(point.lat, point.lon, style = MaterialTheme.typography.bodySmall, onCopied = onCopyCoord)
-                    Text(" · 距虚拟位置 ${formatDistance(distance)}",
+                    Text(" · 距模拟位置 ${formatDistance(distance)}",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "关闭") }
         }
         Spacer(Modifier.size(14.dp))
+        // One clear main action, then the secondary ones as equal labelled tiles.
+        Button(
+            onClick = if (running) onSetVirtual else onStart,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Icon(if (running) Icons.Rounded.NearMe else Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (running) "移到这里" else "从这里开始模拟", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+        }
+        Spacer(Modifier.size(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (running) {
-                Button(onClick = onSetVirtual, modifier = Modifier.weight(1f)) { Text("设为虚拟位置", maxLines = 1) }
-            } else {
-                Button(onClick = onStart, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("开始模拟", maxLines = 1)
-                }
-                FilledTonalButton(onClick = onSetVirtual, modifier = Modifier.weight(1f)) { Text("设为位置", maxLines = 1) }
-            }
-            FilledTonalButton(onClick = onRouteTo, contentPadding = PaddingValues(horizontal = 14.dp)) {
-                Icon(Icons.Rounded.Directions, "规划去这里的路线", Modifier.size(20.dp))
-            }
-            OutlinedButton(onClick = onSave, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                Icon(Icons.Rounded.Add, "添加到历史", Modifier.size(20.dp))
-            }
+            if (!running) ActionTile(Icons.Rounded.PinDrop, "设为模拟点", Modifier.weight(1f), onSetVirtual)
+            ActionTile(Icons.Rounded.Directions, "路线到这里", Modifier.weight(1f), onRouteTo)
+            ActionTile(Icons.Rounded.BookmarkAdd, "收藏", Modifier.weight(1f), onSave)
+        }
+    }
+}
+
+/** Secondary action of the selection card: icon over a short label, never truncated. */
+@Composable
+private fun ActionTile(icon: ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 60.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Column(Modifier.padding(vertical = 9.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center) {
+            Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.size(4.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
     }
 }

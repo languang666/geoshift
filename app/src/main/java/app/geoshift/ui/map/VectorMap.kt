@@ -73,6 +73,7 @@ fun VectorMap(
     modifier: Modifier,
     virtual: LatLon,
     simulating: Boolean,
+    real: LatLon?,
     selected: LatLon?,
     route: List<LatLon>,
     routeEditing: Boolean,
@@ -145,7 +146,7 @@ fun VectorMap(
     }
     LaunchedEffect(route, routeEditing, anchors, layers) { layers.route(route, routeEditing, anchors) }
     AndroidView(factory = { view }, modifier = modifier) {
-        layers.markers(virtual, simulating, selected)
+        layers.markers(virtual, simulating, real, selected)
     }
 }
 
@@ -161,8 +162,9 @@ private class VectorLayers(
     private val onLongPress: (LatLon) -> Unit,
 ) {
     private val density = context.resources.displayMetrics.density
-    private val idleIcon = dotDrawable(context, false).bitmap
-    private val activeIcon = dotDrawable(context, true).bitmap
+    private val idleIcon = simMarker(context, false).bitmap
+    private val activeIcon = simMarker(context, true).bitmap
+    private val realIcon = realMarker(context).bitmap
     private val pinIcon = pinDrawable(context).bitmap
     private var map: MapLibreMap? = null
     private var style: Style? = null
@@ -178,6 +180,7 @@ private class VectorLayers(
     // Latest data, re-applied whenever a style finishes loading.
     private var virtual: LatLon = camera.target
     private var simulating = false
+    private var real: LatLon? = null
     private var selected: LatLon? = null
     private var routePoints: List<LatLon> = emptyList()
     private var editing = false
@@ -251,10 +254,11 @@ private class VectorLayers(
         pushRoute()
     }
 
-    fun markers(virtual: LatLon, simulating: Boolean, selected: LatLon?) {
-        if (virtual == this.virtual && simulating == this.simulating && selected == this.selected && style != null) return
+    fun markers(virtual: LatLon, simulating: Boolean, real: LatLon?, selected: LatLon?) {
+        if (virtual == this.virtual && simulating == this.simulating && real == this.real && selected == this.selected && style != null) return
         this.virtual = virtual
         this.simulating = simulating
+        this.real = real
         this.selected = selected
         pushMarkers()
     }
@@ -274,7 +278,8 @@ private class VectorLayers(
         style.addImage(IMG_IDLE, idleIcon)
         style.addImage(IMG_ACTIVE, activeIcon)
         style.addImage(IMG_PIN, pinIcon)
-        for (id in listOf(SRC_ROUTE, SRC_VERTICES, SRC_ENDS, SRC_VIRTUAL, SRC_SELECTED)) style.addSource(GeoJsonSource(id))
+        style.addImage(IMG_REAL, realIcon)
+        for (id in listOf(SRC_ROUTE, SRC_VERTICES, SRC_ENDS, SRC_REAL, SRC_VIRTUAL, SRC_SELECTED)) style.addSource(GeoJsonSource(id))
         // The route line goes under the map's labels so street names stay readable; markers go on top.
         val firstLabel = style.layers.firstOrNull { it is SymbolLayer }?.id
         fun addLine(layer: LineLayer) = if (firstLabel != null) style.addLayerBelow(layer, firstLabel) else style.addLayer(layer)
@@ -291,6 +296,8 @@ private class VectorLayers(
             PropertyFactory.circleRadius(5f), PropertyFactory.circleStrokeWidth(2f), PropertyFactory.circleStrokeColor("#FFFFFF"),
             PropertyFactory.circleColor(Expression.match(Expression.get("kind"), Expression.literal("#E5484D"),
                 Expression.stop("start", Expression.literal("#1FA971"))))))
+        style.addLayer(SymbolLayer("gs-real", SRC_REAL).withProperties(
+            PropertyFactory.iconImage(IMG_REAL), PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
         style.addLayer(SymbolLayer("gs-virtual", SRC_VIRTUAL).withProperties(
             PropertyFactory.iconImage(IMG_IDLE), PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
         style.addLayer(SymbolLayer("gs-selected", SRC_SELECTED).withProperties(
@@ -322,6 +329,7 @@ private class VectorLayers(
         source(SRC_VIRTUAL)?.setGeoJson(Feature.fromGeometry(virtual.point()))
         s.getLayerAs<SymbolLayer>("gs-virtual")?.setProperties(PropertyFactory.iconImage(if (simulating) IMG_ACTIVE else IMG_IDLE))
         source(SRC_SELECTED)?.setGeoJson(FeatureCollection.fromFeatures(listOfNotNull(selected?.let { Feature.fromGeometry(it.point()) })))
+        source(SRC_REAL)?.setGeoJson(FeatureCollection.fromFeatures(listOfNotNull(real?.let { Feature.fromGeometry(it.point()) })))
     }
 
     companion object {
@@ -330,6 +338,8 @@ private class VectorLayers(
         private const val SRC_ENDS = "gs-ends-src"
         private const val SRC_VIRTUAL = "gs-virtual-src"
         private const val SRC_SELECTED = "gs-selected-src"
+        private const val SRC_REAL = "gs-real-src"
+        private const val IMG_REAL = "gs-real"
         private const val IMG_IDLE = "gs-dot-idle"
         private const val IMG_ACTIVE = "gs-dot-active"
         private const val IMG_PIN = "gs-pin"

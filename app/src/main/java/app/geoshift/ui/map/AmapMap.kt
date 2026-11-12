@@ -46,6 +46,7 @@ fun AmapMap(
     keyRevision: Any,
     virtual: LatLon,
     simulating: Boolean,
+    real: LatLon?,
     selected: LatLon?,
     route: List<LatLon>,
     routeEditing: Boolean,
@@ -124,7 +125,7 @@ fun AmapMap(
         layers.map.uiSettings.setLogoBottomMargin(logoBottomMargin)
         val type = if (dark) AMap.MAP_TYPE_NIGHT else AMap.MAP_TYPE_NORMAL
         if (layers.map.mapType != type) layers.map.mapType = type
-        layers.markers(virtual, simulating, selected)
+        layers.markers(virtual, simulating, real, selected)
     }
 }
 
@@ -136,13 +137,15 @@ private class NativeLayers(
 ) {
     val map: AMap = view.map
     private val density = context.resources.displayMetrics.density
-    private val idleIcon = BitmapDescriptorFactory.fromBitmap(dotDrawable(context, false).bitmap)
-    private val activeIcon = BitmapDescriptorFactory.fromBitmap(dotDrawable(context, true).bitmap)
+    private val idleIcon = BitmapDescriptorFactory.fromBitmap(simMarker(context, false).bitmap)
+    private val activeIcon = BitmapDescriptorFactory.fromBitmap(simMarker(context, true).bitmap)
+    private val realIcon = BitmapDescriptorFactory.fromBitmap(realMarker(context).bitmap)
     private val pinIcon = BitmapDescriptorFactory.fromBitmap(pinDrawable(context).bitmap)
     private val vertexIcon = BitmapDescriptorFactory.fromBitmap(circle(10, 0xFFFFFFFF.toInt(), 0xFF5266E8.toInt()))
     private val startIcon = BitmapDescriptorFactory.fromBitmap(circle(12, 0xFF1FA971.toInt(), 0xFFFFFFFF.toInt()))
     private val endIcon = BitmapDescriptorFactory.fromBitmap(circle(12, 0xFFE5484D.toInt(), 0xFFFFFFFF.toInt()))
     private val virtual: Marker
+    private val real: Marker
     private val selected: Marker
     private val casing: Polyline = map.addPolyline(PolylineOptions().color(0xFFFFFFFF.toInt()).width(8 * density).zIndex(1f))
     private val line: Polyline = map.addPolyline(PolylineOptions().color(0xFF5266E8.toInt()).width(5 * density).zIndex(2f))
@@ -156,6 +159,7 @@ private class NativeLayers(
     private var lastVirtual: LatLon? = null
     private var lastSimulating: Boolean? = null
     private var lastSelected: LatLon? = null
+    private var lastReal: LatLon? = null
 
     init {
         map.isMyLocationEnabled = false
@@ -184,6 +188,8 @@ private class NativeLayers(
         map.setTileLoadCallback { success, _, _ -> if (success && !dataLoaded) dataLoaded = true }
         virtual = map.addMarker(MarkerOptions().position(camera.target.amap()).icon(idleIcon)
             .anchor(0.5f, 0.5f).infoWindowEnable(false).zIndex(20f))
+        real = map.addMarker(MarkerOptions().position(camera.target.amap()).icon(realIcon)
+            .anchor(0.5f, 0.5f).infoWindowEnable(false).zIndex(15f).visible(false))
         selected = map.addMarker(MarkerOptions().position(camera.target.amap()).icon(pinIcon)
             .anchor(0.5f, 1f).infoWindowEnable(false).zIndex(30f).visible(false))
         map.setOnMarkerClickListener { true }
@@ -214,7 +220,12 @@ private class NativeLayers(
         map.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 500L, null)
     }
 
-    fun markers(virtual: LatLon, simulating: Boolean, selected: LatLon?) {
+    fun markers(virtual: LatLon, simulating: Boolean, real: LatLon?, selected: LatLon?) {
+        if (real != lastReal) {
+            this.real.isVisible = real != null
+            real?.let { this.real.position = it.amap() }
+            lastReal = real
+        }
         if (virtual != lastVirtual) { this.virtual.position = virtual.amap(); lastVirtual = virtual }
         if (simulating != lastSimulating) { this.virtual.setIcon(if (simulating) activeIcon else idleIcon); lastSimulating = simulating }
         if (selected != lastSelected) {

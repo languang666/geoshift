@@ -57,6 +57,7 @@ fun OsmMap(
     modifier: Modifier,
     virtual: LatLon,
     simulating: Boolean,
+    real: LatLon?,
     selected: LatLon?,
     route: List<LatLon>,
     routeEditing: Boolean,
@@ -99,6 +100,14 @@ fun OsmMap(
             setOnMarkerClickListener { _, _ -> true }
         }
     }
+    val realMarker = remember {
+        Marker(mapView).apply {
+            icon = realMarker(context)
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            setInfoWindow(null)
+            setOnMarkerClickListener { _, _ -> true }
+        }
+    }
     val selectedMarker = remember {
         Marker(mapView).apply {
             icon = pinDrawable(context)
@@ -107,8 +116,8 @@ fun OsmMap(
             setOnMarkerClickListener { _, _ -> true }
         }
     }
-    val idleIcon = remember { dotDrawable(context, active = false) }
-    val activeIcon = remember { dotDrawable(context, active = true) }
+    val idleIcon = remember { simMarker(context, active = false) }
+    val activeIcon = remember { simMarker(context, active = true) }
 
     remember {
         mapView.addMapListener(object : MapListener {
@@ -133,6 +142,7 @@ fun OsmMap(
         })
         mapView.overlays.add(events)
         mapView.overlays.add(routeOverlay)
+        mapView.overlays.add(realMarker)
         mapView.overlays.add(virtualMarker)
         mapView.overlays.add(selectedMarker)
         true
@@ -178,6 +188,8 @@ fun OsmMap(
         mv.overlayManager.tilesOverlay.setLoadingBackgroundColor(if (dark) 0xFF1B1E27.toInt() else 0xFFE9ECF2.toInt())
         virtualMarker.position = source.display(virtual)
         virtualMarker.icon = if (simulating) activeIcon else idleIcon
+        realMarker.isEnabled = real != null
+        real?.let { realMarker.position = source.display(it) }
         selectedMarker.isEnabled = selected != null
         selected?.let { selectedMarker.position = source.display(it) }
         routeOverlay.points = routePoints
@@ -269,22 +281,6 @@ private val DARK_TILES = ColorMatrixColorFilter(ColorMatrix().apply {
     postConcat(desaturate)
     postConcat(dim)
 })
-
-internal fun dotDrawable(context: Context, active: Boolean): BitmapDrawable {
-    val d = context.resources.displayMetrics.density
-    val size = (44 * d).toInt()
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val c = Canvas(bitmap)
-    val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    val cx = size / 2f
-    p.color = if (active) 0x405266E8 else 0x307A8199
-    c.drawCircle(cx, cx, 21 * d, p)
-    p.color = 0xFFFFFFFF.toInt()
-    c.drawCircle(cx, cx, 10 * d, p)
-    p.color = if (active) INDIGO else 0xFF7A8199.toInt()
-    c.drawCircle(cx, cx, 7 * d, p)
-    return BitmapDrawable(context.resources, bitmap)
-}
 
 internal fun pinDrawable(context: Context): BitmapDrawable {
     val d = context.resources.displayMetrics.density

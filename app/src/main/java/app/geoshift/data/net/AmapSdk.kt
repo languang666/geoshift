@@ -23,6 +23,11 @@ import java.io.File
  * privacy terms. Coordinates in and out are WGS-84; AMap works in GCJ-02.
  */
 class AmapSdk(context: Context, private val key: () -> String) {
+    class AmapError(val code: String, message: String) : Exception(message) {
+        /** The point lies outside AMap's coverage (abroad). */
+        val outOfCoverage get() = code == OUT_OF_SERVICE
+    }
+
     private val app = context.applicationContext
     private var configuredKey: String? = null
 
@@ -61,7 +66,7 @@ class AmapSdk(context: Context, private val key: () -> String) {
         try {
             return block()
         } catch (e: AMapException) {
-            throw Amap.AmapError(e.errorCode.toString(), explain(e.errorCode, e.errorMessage.orEmpty()))
+            throw AmapError(e.errorCode.toString(), explain(e.errorCode, e.errorMessage.orEmpty()))
         }
     }
 
@@ -97,7 +102,7 @@ class AmapSdk(context: Context, private val key: () -> String) {
                 ?.paths?.firstOrNull()?.steps.orEmpty().map { it.polyline.orEmpty() }
         }
         val out = lines.flatten().map { it.wgs() }.filter { it.valid }
-        if (out.size < 2) throw Amap.AmapError("3002", "高德没有找到这两点之间的道路，可改用直线连接。")
+        if (out.size < 2) throw AmapError("3002", "高德没有找到这两点之间的道路，可改用直线连接。")
         out
     }
 
