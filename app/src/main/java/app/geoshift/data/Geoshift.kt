@@ -387,6 +387,7 @@ class Geoshift private constructor(context: Context) {
     }
 
     fun saveCellPreset(name: String, cell: CellSpec, id: String? = null): String {
+        if (cell.type == CellType.NR && android.os.Build.VERSION.SDK_INT < 29) fail("5G NR 基站模拟需要 Android 10 或更高版本。")
         Validate.cell(cell)
         return (id ?: newId()).also { store.cellPresets.put(CellPreset(it, Validate.name(name), cell)) }
     }

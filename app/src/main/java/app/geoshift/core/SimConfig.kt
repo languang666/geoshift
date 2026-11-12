@@ -92,7 +92,7 @@ data class WifiSpec(
     val safeFrequency get() = if (frequency in 2400..7125) frequency else 2437
 }
 
-enum class CellType { LTE, GSM }
+enum class CellType { LTE, GSM, NR }
 
 @Serializable
 data class CellSpec(

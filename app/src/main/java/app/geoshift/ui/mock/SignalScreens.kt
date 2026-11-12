@@ -283,7 +283,7 @@ fun CellScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
         item {
             val cell = r.cells.firstOrNull()
             SwitchCard(
-                "基站模拟", "为目标应用提供 GSM / LTE 小区信息；不改变手机真实的网络注册。",
+                "基站模拟", "为目标应用提供 GSM / LTE / NR 小区信息；不改变手机真实的网络注册。",
                 checked = r.cellEnabled,
                 current = if (cell != null) "${cell.type} · ${Geoshift.carrier(cell.mcc, cell.mnc)} · CID ${cell.cid}" +
                         if (r.cells.size > 1) " 等 ${r.cells.size} 个小区" else "" else null,
@@ -306,7 +306,7 @@ fun CellScreen(s: AppState, vm: AppViewModel, onBack: () -> Unit) {
     if (form != null) {
         val id = editing?.id
         CellDialog(form, title = if (editing != null) "编辑基站" else "添加基站", onDismiss = { editing = null; creating = null }) { name, cell ->
-            vm.run(if (id != null) "基站预设已更新" else "基站预设已添加") { saveCellPreset(name, cell, id) }
+            vm.run(if (id != null) "基站预设已更新" else "基站预设已添加", onDone = { editing = null; creating = null }) { saveCellPreset(name, cell, id) }
         }
     }
     deleting?.let { p ->
@@ -335,7 +335,7 @@ private val CELL_FIELDS = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CellDialog(initial: CellDraft, title: String, onDismiss: () -> Unit, onSave: (String, CellSpec) -> Unit) {
-    var type by remember { mutableStateOf(if (initial.type == "GSM") "GSM" else "LTE") }
+    var type by remember { mutableStateOf(if (initial.type in listOf("GSM", "NR")) initial.type else "LTE") }
     var name by remember { mutableStateOf(initial.name) }
     val values = remember {
         androidx.compose.runtime.mutableStateMapOf(
@@ -343,7 +343,7 @@ private fun CellDialog(initial: CellDraft, title: String, onDismiss: () -> Unit,
             "pci" to initial.pci, "channel" to initial.channel, "rssi" to initial.dbm,
         )
     }
-    val unsupported = initial.type !in listOf("LTE", "GSM")
+    val unsupported = initial.type !in listOf("LTE", "GSM", "NR")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -352,17 +352,17 @@ private fun CellDialog(initial: CellDraft, title: String, onDismiss: () -> Unit,
                 if (unsupported) Text("扫描到的 ${initial.type} 小区暂不支持模拟，将按下方选择的类型保存。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 OutlinedTextField(name, { name = it }, label = { Text("名称") }, placeholder = { Text("未命名基站") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Segmented(listOf("LTE", "GSM"), if (type == "GSM") 1 else 0) { type = if (it == 1) "GSM" else "LTE" }
+                Segmented(listOf("LTE", "GSM", "NR"), listOf("LTE", "GSM", "NR").indexOf(type)) { type = listOf("LTE", "GSM", "NR")[it] }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Geoshift.CARRIERS.forEach { (label, mcc, mnc) ->
                         FilterChip(selected = values["mcc"] == mcc && values["mnc"] == mnc,
                             onClick = { values["mcc"] = mcc; values["mnc"] = mnc }, label = { Text(label) })
                     }
                 }
-                CELL_FIELDS.filter { type == "LTE" || it.first != "pci" }.forEach { (key, label, hint) ->
+                CELL_FIELDS.filter { type != "GSM" || it.first != "pci" }.forEach { (key, label, hint) ->
                     OutlinedTextField(
                         value = values[key].orEmpty(), onValueChange = { values[key] = it },
-                        label = { Text(label) }, supportingText = { Text(hint) }, singleLine = true,
+                        label = { Text(label) }, supportingText = { Text(if (type == "NR") when (key) { "area" -> "NR TAC 0–16777215"; "cid" -> "NR NCI 0–68719476735"; "pci" -> "NR PCI 0–1007"; "channel" -> "NR-ARFCN 0–3279165"; "rssi" -> "NR -156 ~ -31 dBm"; else -> hint } else hint) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -373,15 +373,15 @@ private fun CellDialog(initial: CellDraft, title: String, onDismiss: () -> Unit,
             TextButton(onClick = {
                 val gsm = type == "GSM"
                 onSave(name.ifBlank { "未命名基站" }, CellSpec(
-                    type = if (gsm) CellType.GSM else CellType.LTE,
+                    type = CellType.valueOf(type),
                     mcc = values["mcc"]!!.trim(), mnc = values["mnc"]!!.trim(),
                     cid = values["cid"]!!.trim().toLongOrNull() ?: -1,
                     area = values["area"]!!.trim().toIntOrNull() ?: -1,
                     pci = if (gsm) 0 else values["pci"]!!.trim().toIntOrNull() ?: -1,
-                    channel = values["channel"]!!.trim().toIntOrNull() ?: 0,
-                    dbm = values["rssi"]!!.trim().toIntOrNull() ?: -85,
+                    channel = values["channel"]!!.trim().let { if (it.isEmpty()) 0 else it.toIntOrNull() ?: -1 },
+                    dbm = values["rssi"]!!.trim().toIntOrNull() ?: 0,
                     registered = initial.registered,
-                )); onDismiss()
+                ))
             }) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },

@@ -181,7 +181,7 @@ data class ScannedCell(
 ) {
     /** The simulated form, for LTE and GSM cells with complete ids. */
     fun toSpec(): CellSpec? {
-        val t = when (type) { "LTE" -> CellType.LTE; "GSM" -> CellType.GSM; else -> return null }
+        val t = when (type) { "LTE" -> CellType.LTE; "GSM" -> CellType.GSM; "NR" -> CellType.NR; else -> return null }
         return CellSpec(t, mcc, mnc, cid ?: return null, area ?: return null, pci ?: 0, channel ?: 0, dbm, registered)
             .takeIf { Validate.cellOk(it) }
     }

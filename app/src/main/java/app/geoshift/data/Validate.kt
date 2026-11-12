@@ -34,13 +34,15 @@ object Validate {
     }
 
     fun cell(c: CellSpec) {
-        val lte = c.type == CellType.LTE
         if (!c.mcc.matches(MCC) || !c.mnc.matches(MNC))
             fail("MCC 应为 3 位数字（中国为 460），MNC 应为 2–3 位数字。")
-        if (c.cid < 0 || c.cid > (if (lte) 268435455L else 65535L)) fail("小区识别码 CID 超出 ${c.type} 范围。")
-        if (c.area !in 0..65535) fail("${if (lte) "TAC" else "LAC"} 应为 0–65535。")
-        if (lte && c.pci !in 0..503) fail("LTE PCI 应为 0–503。")
-        if (c.dbm !in -160..-20) fail("信号强度应为 -160 到 -20 dBm。")
+        val maxCid = when (c.type) { CellType.LTE -> 268435455L; CellType.GSM -> 65535L; CellType.NR -> 68719476735L }
+        val maxArea = if (c.type == CellType.NR) 16777215 else 65535
+        if (c.cid !in 0..maxCid) fail("小区识别码超出 ${c.type} 范围（0–$maxCid）。")
+        if (c.area !in 0..maxArea) fail("TAC/LAC 应为 0–$maxArea。")
+        if (c.type != CellType.GSM && c.pci !in 0..(if (c.type == CellType.NR) 1007 else 503)) fail("PCI 超出 ${c.type} 范围。")
+        if (c.type == CellType.NR && c.channel !in 0..3279165) fail("NR-ARFCN 应为 0–3279165。")
+        if (c.dbm !in (if (c.type == CellType.NR) -156..-31 else -160..-20)) fail("信号强度超出 ${c.type} 范围。")
     }
 
     fun cellOk(c: CellSpec) = runCatching { cell(c) }.isSuccess

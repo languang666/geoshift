@@ -80,7 +80,8 @@ object Fakes {
 
     fun cell(v: CellSpec): Any {
         val lte = v.type == CellType.LTE
-        val info = Reflect.newInstance(if (lte) CellInfoLte::class.java else CellInfoGsm::class.java)
+        val nr = v.type == CellType.NR
+        val info = Reflect.newInstance(if (nr) android.telephony.CellInfoNr::class.java else if (lte) CellInfoLte::class.java else CellInfoGsm::class.java)
         val identity = Reflect.call(info, "getCellIdentity")!!
         val signal = Reflect.call(info, "getCellSignalStrength")!!
         if (Reflect.hasField(identity.javaClass, "mMccStr")) {
@@ -90,9 +91,13 @@ object Fakes {
             Reflect.set(identity, "mMcc", v.mcc.toInt(), "基站")
             Reflect.set(identity, "mMnc", v.mnc.toInt(), "基站")
         }
-        Reflect.set(identity, if (lte) "mCi" else "mCid", v.cid.toInt(), "基站")
-        Reflect.set(identity, if (lte) "mTac" else "mLac", v.area, "基站")
-        if (lte) {
+        Reflect.set(identity, if (nr) "mNci" else if (lte) "mCi" else "mCid", if (nr) v.cid as Any else v.cid.toInt() as Any, "基站")
+        Reflect.set(identity, if (lte || nr) "mTac" else "mLac", v.area, "基站")
+        if (nr) {
+            Reflect.set(identity, "mPci", v.pci, "基站")
+            Reflect.set(identity, "mNrArfcn", v.channel, "基站")
+            Reflect.set(signal, "mSsRsrp", v.dbm, "基站信号")
+        } else if (lte) {
             Reflect.set(identity, "mPci", v.pci, "基站")
             Reflect.set(identity, "mEarfcn", v.channel, "基站")
             Reflect.set(signal, "mRsrp", v.dbm, "基站信号")
@@ -104,7 +109,7 @@ object Fakes {
         val now = SystemClock.elapsedRealtimeNanos()
         if (Reflect.find(info.javaClass, "setTimeStamp", arrayOf(now)) != null) Reflect.call(info, "setTimeStamp", now)
         else Reflect.set(info, "mTimeStamp", now, "基站时间")
-        val read = (Reflect.call(identity, if (lte) "getCi" else "getCid") as Number).toLong()
+        val read = (Reflect.call(identity, if (nr) "getNci" else if (lte) "getCi" else "getCid") as Number).toLong()
         check(read == v.cid) { "Cell identity readback mismatch" }
         return info
     }

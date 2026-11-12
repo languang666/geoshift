@@ -9,6 +9,8 @@
 
 ## 当前记录
 
+- [2026-11-12：NR 基站模拟与预设保存](reviews/2026-11-12-nr-cell-simulation.md)
+
 - [2026-11-11：传感器交叉校验——已知局限 + 速度提醒（不伪造）](reviews/2026-11-11-sensor-consistency.md)
 - [2026-11-11：出口 IP 校验（提示性，非伪装）](reviews/2026-11-11-exit-ip-check.md)
 - [2026-11-11：系统进程内 getter 的反内联加固（deoptimize）](reviews/2026-11-11-anti-inline-deoptimize.md)

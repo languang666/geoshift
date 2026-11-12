@@ -13,6 +13,15 @@ class SimConfigTest {
         assertEquals(c, SimConfig.decode(c.encode()))
     }
 
+    @Test fun nrRoundTripPreserves36BitIdentity() {
+        val cell = CellSpec(CellType.NR, "460", "00", 68719476735L, 16777215, 1007, 3279165, -85)
+        val config = SimConfig(cells = listOf(cell))
+        assertEquals(config, SimConfig.decode(config.encode()))
+        assertTrue(app.geoshift.data.Validate.cellOk(cell))
+        assertFalse(app.geoshift.data.Validate.cellOk(cell.copy(cid = 68719476736L)))
+        assertFalse(app.geoshift.data.Validate.cellOk(cell.copy(pci = 1008)))
+    }
+
     @Test fun unknownFieldsAreIgnored() {
         assertEquals(SimConfig(bootAt = 3), SimConfig.decode("""{"bootAt":3,"future":true}"""))
     }
