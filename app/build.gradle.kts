@@ -13,8 +13,8 @@ android {
         applicationId = "app.geoshift"
         minSdk = 26
         targetSdk = 35
-        versionCode = 49
-        versionName = "3.0.9"
+        versionCode = 50
+        versionName = "3.1.0"
         // Native map code is per ABI. 64-bit ARM only (32-bit phones are no longer supported: it halves the map library);
         // build with -Pemulator to add x86_64 for the emulator.
         ndk {
@@ -45,6 +45,10 @@ android {
     }
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "DebugProbesKt.bin", "kotlin-tooling-metadata.json")
+        // The AMap bundle's location SDK is never started; drop its native part.
+        jniLibs.excludes += "**/libapssdk.so"
+        // Compressed native code: the AMap map library is 34 MB raw, 13 MB compressed (download size halves).
+        jniLibs.useLegacyPackaging = true
     }
     dependenciesInfo {
         includeInApk = false
@@ -65,6 +69,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("org.maplibre.gl:android-sdk:13.7.1")
+    // Official AMap map + search SDK; only initialised after the user saves their own Android key.
+    implementation("com.amap.api:3dmap-location-search:11.3.100_loc11.3.101_sea9.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")

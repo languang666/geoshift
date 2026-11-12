@@ -98,6 +98,7 @@ import app.geoshift.ui.map.MapScreen
 import app.geoshift.ui.mock.CellScreen
 import app.geoshift.ui.mock.MockScreen
 import app.geoshift.ui.mock.WifiScreen
+import app.geoshift.ui.settings.AmapKeyScreen
 import app.geoshift.ui.settings.SettingsScreen
 import app.geoshift.ui.setup.SetupScreen
 import app.geoshift.ui.setup.SystemTarget
@@ -110,7 +111,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     HISTORY("收藏", Icons.Rounded.Bookmarks), SETTINGS("设置", Icons.Rounded.Settings),
 }
 
-private enum class Page { MAIN, WIFI, CELL, SETUP }
+private enum class Page { MAIN, WIFI, CELL, SETUP, AMAP_KEY }
 
 @Composable
 fun GeoshiftApp(vm: AppViewModel, onOpen: (SystemTarget) -> Unit, onExport: () -> Unit, onImport: () -> Unit) {
@@ -200,8 +201,13 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
                 SetupScreen(s, vm, onOpen, onBack = { page = Page.MAIN }, onDone = { page = Page.MAIN })
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
             }
+            Page.AMAP_KEY -> Box(Modifier.fillMaxSize()) {
+                AmapKeyScreen(s, vm, onBack = { page = Page.MAIN })
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+            }
             Page.MAIN -> {
                 val openSetup = { page = Page.SETUP }
+                val openAmapKey = { page = Page.AMAP_KEY }
                 val hazeState = rememberHazeState()
                 // Content runs edge to edge and scrolls under the floating tab bar.
                 val nav = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -217,14 +223,16 @@ private fun Root(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, 
                         label = "tabTransition",
                     ) { currentTab ->
                         when (currentTab) {
-                            Tab.MAP -> MapScreen(s, vm, padding, center, onCenter = { center = it }, onOpenSetup = openSetup)
+                            Tab.MAP -> MapScreen(s, vm, padding, center, onCenter = { center = it }, onOpenSetup = openSetup,
+                                onOpenAmapKey = openAmapKey)
                             Tab.HISTORY -> HistoryScreen(s, vm, padding, historyTab,
                                 onShowOnMap = { p -> center = CenterRequest(p, 16.0); tab = Tab.MAP },
                                 onGoMock = { tab = Tab.MOCK }, onExport = onExport)
                             Tab.MOCK -> MockScreen(s, vm, padding, onOpenSetup = openSetup,
                                 onOpenWifi = { page = Page.WIFI }, onOpenCell = { page = Page.CELL },
                                 onPickRoute = { historyTab = 1; tab = Tab.HISTORY })
-                            Tab.SETTINGS -> SettingsScreen(s, vm, padding, onOpenSetup = openSetup, onExport = onExport, onImport = onImport)
+                            Tab.SETTINGS -> SettingsScreen(s, vm, padding, onOpenSetup = openSetup, onExport = onExport, onImport = onImport,
+                                onOpenAmapKey = openAmapKey)
                         }
                     }
                     // Translucent status-bar strip so scrolled content never sits under the clock (the map stays full-bleed).

@@ -52,14 +52,19 @@ fun httpText(url: String, allowStatus: Int = -1, maxBytes: Int = 8 * 1024 * 1024
 
 private fun enc(v: String) = URLEncoder.encode(v, "UTF-8")
 
-/** AMap Web service (optional key): search, address, road routes and IP location in China. */
-class Amap(private val key: () -> String) {
+/**
+ * AMap data (optional): search, address, road routes and IP location in China. The Android key
+ * (official SDK, [sdk]) is preferred; the older Web service key ([key]) keeps working on its own.
+ */
+class Amap(private val key: () -> String, private val sdk: AmapSdk) {
     class AmapError(val code: String, message: String) : Exception(message) {
         /** The point lies outside AMap's coverage (abroad). */
-        val outOfCoverage get() = code == "20011" || code == "20800"
+        val outOfCoverage get() = code == "20011" || code == "20800" || code == AmapSdk.OUT_OF_SERVICE
     }
 
-    val available get() = key().isNotEmpty()
+    val available get() = sdk.ready || key().isNotEmpty()
+    /** Which key answers: "Android Key", "Web 服务 Key" or "" (none). */
+    val via get() = if (sdk.ready) "Android Key" else if (key().isNotEmpty()) "Web 服务 Key" else ""
 
     private fun lonLat(p: LatLon) = String.format(Locale.ROOT, "%.6f,%.6f", p.lon, p.lat)
 
@@ -71,7 +76,8 @@ class Amap(private val key: () -> String) {
         return json
     }
 
-    fun search(query: String): List<Place> {
+    fun search(query: String, near: LatLon? = null): List<Place> {
+        if (sdk.ready) return sdk.search(query, near)
         val tips = get("/v3/assistant/inputtips", "keywords=${enc(query)}&datatype=all").optJSONArray("tips") ?: JSONArray()
         return (0 until tips.length()).mapNotNull { i ->
             val tip = tips.optJSONObject(i) ?: return@mapNotNull null
@@ -84,12 +90,14 @@ class Amap(private val key: () -> String) {
     }
 
     fun reverse(p: LatLon): String {
+        if (sdk.ready) return sdk.reverse(p)
         val regeo = get("/v3/geocode/regeo", "extensions=base&location=${enc(lonLat(Geo.wgsToGcj(p)))}").optJSONObject("regeocode")
         return regeo?.optString("formatted_address").orEmpty().takeUnless { it == "[]" }.orEmpty()
     }
 
     /** Road path a → b (WGS-84). */
     fun direction(profile: RoadProfile, a: LatLon, b: LatLon): List<LatLon> {
+        if (sdk.ready) return sdk.direction(profile, a, b)
         var od = "origin=${enc(lonLat(Geo.wgsToGcj(a)))}&destination=${enc(lonLat(Geo.wgsToGcj(b)))}"
         val path = when (profile) {
             RoadProfile.CAR -> "/v3/direction/driving".also { od += "&extensions=base" }
@@ -112,6 +120,7 @@ class Amap(private val key: () -> String) {
 
     /** Province/city of the request's exit IP, or null for overseas IPs. */
     fun ip(): IpResult? {
+        if (key().isEmpty()) return null
         val r = runCatching { get("/v3/ip", "") }.getOrNull() ?: return null
         val rect = r.optString("rectangle")
         if (rect.isEmpty() || rect == "[]") return null
@@ -208,7 +217,7 @@ data class IpResult(val ip: String, val place: String, val position: LatLon?, va
 object IpLocator {
     /** AMap (accurate for mainland IPs) when a key is set, otherwise ipwho.is (worldwide, keyless). */
     fun lookup(amap: Amap): IpResult {
-        if (amap.available) amap.ip()?.let { return it }
+        amap.ip()?.let { return it }
         val r = runCatching { JSONObject(httpText("https://ipwho.is/", maxBytes = 256 * 1024)) }.getOrElse { if (it is UserError) throw it else fail("IP 定位服务返回了无法识别的内容。") }
         if (!r.optBoolean("success", true) && r.has("message")) fail("IP 定位服务返回错误：${r.optString("message")}")
         val clean = { s: String -> s.takeUnless { it == "[]" }.orEmpty().trim() }

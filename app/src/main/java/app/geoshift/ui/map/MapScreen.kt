@@ -75,9 +75,9 @@ import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import app.geoshift.ui.settings.MapKeyDialog
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -138,6 +138,7 @@ fun MapScreen(
     centerRequest: CenterRequest?,
     onCenter: (CenterRequest) -> Unit,
     onOpenSetup: () -> Unit,
+    onOpenAmapKey: () -> Unit = {},
 ) {
     val r = s.runtime
     var selected by remember { mutableStateOf<LatLon?>(null) }
@@ -149,7 +150,6 @@ fun MapScreen(
     var saveDialog by remember { mutableStateOf<String?>(null) }
     var routeDialog by remember { mutableStateOf(false) }
     var mapMenu by remember { mutableStateOf(false) }
-    var keyDialog by remember { mutableStateOf(false) }
     var searchGeneration by remember { mutableIntStateOf(0) }
     var addressGeneration by remember { mutableIntStateOf(0) }
     val camera = remember { MapCamera(r.position) }
@@ -158,6 +158,19 @@ fun MapScreen(
     val density = LocalDensity.current
     // Everything but the plain OpenStreetMap layer is drawn by MapLibre (sharper, rotatable).
     val vectorMap = s.settings.mapSource != MapSource.OSM
+    // With the user's AMap Android key the AMap layer is the official SDK map; tiles otherwise.
+    val sdk = vm.engine.amapSdk
+    val sdkKey by vm.engine.store.sdkKey.collectAsState()
+    var sdkFailed by remember(sdkKey) { mutableStateOf(false) }
+    val officialAmap = s.settings.mapSource == MapSource.AMAP && sdkKey.isNotEmpty() && s.settings.privacyAccepted &&
+        sdk.mapSupported && !sdkFailed
+    // A key that does not authenticate would leave the official map blank: check it first.
+    LaunchedEffect(sdkKey, s.settings.mapSource) {
+        if (!officialAmap) return@LaunchedEffect
+        val problem = withContext(Dispatchers.IO) { vm.engine.amapKeyProblem() } ?: return@LaunchedEffect
+        sdkFailed = true
+        vm.toast("高德 Key 不可用，已改用高德瓦片地图。$problem")
+    }
     val focus = LocalFocusManager.current
 
     val searchHistory = s.settings.searchHistory
@@ -232,7 +245,19 @@ fun MapScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        if (vectorMap) VectorMap(
+        if (officialAmap) AmapMap(
+            modifier = Modifier.fillMaxSize(), sdk = sdk, keyRevision = sdkKey,
+            virtual = r.position, simulating = r.enabled,
+            selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
+            routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
+            dark = isDark(s.settings.theme), camera = camera, center = centerRequest,
+            logoBottomMargin = bottomCardHeight,
+            onBearingChanged = { mapBearing = it },
+            onTap = { p -> if (editing) draft.add(p) else select(p) },
+            onLongPress = { p -> if (!editing) select(p) },
+            onFailure = { message -> sdkFailed = true; vm.toast("$message，已改用高德瓦片地图") },
+            onSlow = { sdkFailed = true; vm.toast("高德官方地图迟迟没有加载，已暂时改用瓦片地图。可检查网络，或到「设置 → 高德 Key」点「验证 Key」") },
+        ) else if (vectorMap) VectorMap(
             modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled,
             selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
             routeEditing = editing, anchors = if (editing) editAnchors else emptyList(),
@@ -319,7 +344,7 @@ fun MapScreen(
             AnimatedVisibility(!tipDismissed && !editing && results.isEmpty()) {
                 MapTip(
                     onSwitch = { mapMenu = true },
-                    onKey = { keyDialog = true },
+                    onKey = onOpenAmapKey,
                     onClose = { vm.run { store.updateSettings { it.copy(mapTipDismissed = true) } } },
                 )
             }
@@ -371,7 +396,7 @@ fun MapScreen(
                     MapTool(Icons.Rounded.Layers, "地图图层：${s.settings.mapSource.label}") { mapMenu = true }
                     DropdownMenu(expanded = mapMenu, onDismissRequest = { mapMenu = false }) {
                         MapSource.values().forEach { source ->
-                            DropdownMenuItem(text = { Text(source.menuLabel) },
+                            DropdownMenuItem(text = { Text(if (source == MapSource.AMAP && sdkKey.isNotEmpty()) "高德地图 · 官方 SDK（已填 Key）" else source.menuLabel) },
                                 trailingIcon = { if (source == s.settings.mapSource) Icon(Icons.Rounded.Check, "已选择") },
                                 onClick = {
                                     mapMenu = false
@@ -484,7 +509,7 @@ fun MapScreen(
             }
         }
 
-        Text(
+        if (!officialAmap) Text(
             s.settings.mapSource.attribution,
             style = MaterialTheme.typography.labelSmall,
             color = Color(0xFF555B6E),
@@ -492,14 +517,6 @@ fun MapScreen(
                 .background(Color(0x99FFFFFF), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp),
         )
     }
-
-    if (keyDialog) MapKeyDialog(configured = s.mapKeyConfigured, onDismiss = { keyDialog = false }, onMessage = vm::toast,
-        onTest = { vm.run<String>(onDone = vm::toast) { checkMapKey() } },
-        onSave = { key ->
-            vm.run(if (key.isEmpty()) "已清除高德 Key" else "高德 Key 已保存，搜索和地址将使用高德数据") {
-                setMapKey(key)
-            }
-        })
 
     saveDialog?.let { suggestion ->
         val p = selected

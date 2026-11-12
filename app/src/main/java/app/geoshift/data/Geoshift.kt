@@ -26,6 +26,7 @@ import app.geoshift.core.WifiSpec
 import app.geoshift.core.mockFlag
 import app.geoshift.core.simplifyRoute
 import app.geoshift.data.net.Amap
+import app.geoshift.data.net.AmapSdk
 import app.geoshift.data.net.IpLocator
 import app.geoshift.data.net.OpenGeocoder
 import app.geoshift.data.net.RoadRouter
@@ -60,7 +61,8 @@ class Geoshift private constructor(context: Context) {
     val store = Store(app)
     val bridge = FrameworkBridge(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val amap = Amap { store.mapKey.value }
+    val amapSdk = AmapSdk(app) { store.sdkKey.value }
+    val amap = Amap({ store.mapKey.value }, amapSdk)
     val router = RoadRouter(amap)
     val scanner = DeviceScanner(app) { capabilities() }
 
@@ -510,7 +512,7 @@ class Geoshift private constructor(context: Context) {
         requireOnline()
         if (!amap.available) return OpenGeocoder.search(q, near)
         // AMap has almost no overseas places; try OpenStreetMap before reporting nothing.
-        return amap.search(q).ifEmpty { runCatching { OpenGeocoder.search(q, near) }.getOrDefault(emptyList()) }
+        return amap.search(q, near).ifEmpty { runCatching { OpenGeocoder.search(q, near) }.getOrDefault(emptyList()) }
     }
 
     /** Address text for a point; never throws (it is looked up automatically as the position changes). */
@@ -529,7 +531,35 @@ class Geoshift private constructor(context: Context) {
     fun checkMapKey(): String {
         requireOnline()
         try { amap.reverse(LatLon(39.9042, 116.4074)) } catch (e: Amap.AmapError) { fail(e.message.orEmpty()) }
-        return "Web 服务 Key 验证通过，地址查询可用"
+        return "${amap.via}验证通过，高德搜索、地址和路线可用"
+    }
+
+    private var keyCheck: Pair<String, String?>? = null
+
+    /**
+     * Why the saved AMap Android key cannot be used (it does not authenticate), or null when it works
+     * or cannot be checked right now (no network). Checked once per key and process. Blocking.
+     */
+    fun amapKeyProblem(): String? {
+        val key = store.sdkKey.value
+        if (key.isEmpty() || !store.settings.value.privacyAccepted) return null
+        keyCheck?.let { if (it.first == key) return it.second }
+        val problem = try {
+            amapSdk.reverse(LatLon(39.9042, 116.4074))
+            null
+        } catch (e: Amap.AmapError) {
+            if (e.code.toIntOrNull() in 1001..1013) e.message else return null
+        } catch (_: Exception) {
+            return null
+        }
+        keyCheck = key to problem
+        return problem
+    }
+
+    /** Saves the AMap Android key; saving is also consent to the AMap SDK privacy terms. */
+    fun setSdkKey(key: String) {
+        Validate.mapKey(key.trim())
+        store.setSdkKey(key.trim())
     }
 
     /**

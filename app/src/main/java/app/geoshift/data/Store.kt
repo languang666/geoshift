@@ -84,6 +84,8 @@ class Store(context: Context) {
     private val logFile = JsonFile(dir, "log.json", ListSerializer(LogEntry.serializer())) { emptyList() }
     /** Kept apart from settings so it never ends up in an export. */
     private val keyFile = JsonFile(dir, "map-key.json", kotlinx.serialization.serializer<String>()) { "" }
+    /** AMap Android (SDK) key: official map, search and routes. Also never exported. */
+    private val sdkKeyFile = JsonFile(dir, "amap-sdk-key.json", kotlinx.serialization.serializer<String>()) { "" }
 
     private val _settings = MutableStateFlow(settingsFile.read())
     val settings: StateFlow<Settings> = _settings.asStateFlow()
@@ -98,6 +100,9 @@ class Store(context: Context) {
 
     private val _mapKey = MutableStateFlow(keyFile.read())
     val mapKey: StateFlow<String> = _mapKey.asStateFlow()
+
+    private val _sdkKey = MutableStateFlow(sdkKeyFile.read())
+    val sdkKey: StateFlow<String> = _sdkKey.asStateFlow()
 
     val places = RecordList(dir, "places.json", SavedPlace.serializer())
     val routes = RecordList(dir, "routes.json", SavedRoute.serializer())
@@ -125,6 +130,11 @@ class Store(context: Context) {
     @Synchronized fun setMapKey(key: String) {
         keyFile.write(key)
         _mapKey.value = key
+    }
+
+    @Synchronized fun setSdkKey(key: String) {
+        sdkKeyFile.write(key)
+        _sdkKey.value = key
     }
 
     @Synchronized fun log(message: String) {

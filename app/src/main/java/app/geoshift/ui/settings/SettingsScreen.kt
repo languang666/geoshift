@@ -130,11 +130,11 @@ fun SettingsScreen(
     onOpenSetup: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
+    onOpenAmapKey: () -> Unit = {},
 ) {
     val st = s.settings
     var number by remember { mutableStateOf<NumberSetting?>(null) }
     var choice by remember { mutableStateOf<String?>(null) }
-    var mapKey by remember { mutableStateOf(false) }
     var appScope by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var text by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -198,8 +198,12 @@ fun SettingsScreen(
         SettingGroup {
             SettingRow("地图图层", null, icon = Icons.Rounded.Layers, value = st.mapSource.label, onClick = { choice = "mapSource" })
             RowDivider()
-            SettingRow("高德 Key", "可选，填写后搜索和路线用高德数据", icon = Icons.Rounded.Key,
-                value = if (s.mapKeyConfigured) "已设置" else "未设置", onClick = { mapKey = true })
+            SettingRow("高德 Key", "可选，填写后使用高德官方地图、搜索和路线", icon = Icons.Rounded.Key,
+                value = when {
+                    s.sdkKeyConfigured -> "已设置"
+                    s.mapKeyConfigured -> "仅 Web 服务"
+                    else -> "未设置"
+                }, onClick = onOpenAmapKey)
             RowDivider()
             SettingRow("外观", null, icon = Icons.Rounded.Palette,
                 value = st.theme.label, onClick = { choice = "theme" })
@@ -291,11 +295,6 @@ fun SettingsScreen(
             onDismiss = { choice = null }) { v -> set { it.copy(speedMode = SpeedMode.valueOf(v)) } }
         "theme" -> ChoiceDialog("外观", ThemeMode.entries.map { it.name to it.label }, st.theme.name,
             onDismiss = { choice = null }) { v -> set(null) { it.copy(theme = ThemeMode.valueOf(v)) } }
-    }
-    if (mapKey) {
-        MapKeyDialog(configured = s.mapKeyConfigured, onDismiss = { mapKey = false }, onMessage = vm::toast,
-            onTest = { vm.run<String>(onDone = vm::toast) { checkMapKey() } },
-            onSave = { key -> vm.run(if (key.isEmpty()) "已清除高德 Key，改用 OpenStreetMap 数据" else "高德 Key 已保存") { setMapKey(key) } })
     }
     when (confirm) {
         "logs" -> ConfirmDialog("清除诊断日志", "确定清空所有诊断日志吗？", confirm = "清除", onDismiss = { confirm = null }) {
@@ -470,11 +469,13 @@ const val PRIVACY = """我们重视您的隐私。
 
 · 位置、路线、预设、环境记录、设置和日志全部保存在本机应用私有存储，不会上传。
 · 地图按您的选择来自 OpenStreetMap、OpenFreeMap、高德地图或 Esri World Imagery，对应服务器可以看到您查看的地图区域。
-· 地点搜索、地址显示和沿道路路线：填写高德 Web 服务 Key 时使用 restapi.amap.com（发送关键词或坐标以及您的 Key），高德不覆盖的海外地点及无结果的搜索改用下列公共服务；未填写时使用 photon.komoot.io（搜索）、nominatim.openstreetmap.org（地址）和 routing.openstreetmap.de（道路路线），发送搜索关键词或坐标。
-· 不包含任何第三方 SDK、广告或统计服务。
+· 地点搜索、地址显示和沿道路路线：填写高德 Key 时使用高德数据（发送关键词或坐标以及您的 Key），高德不覆盖的海外地点及无结果的搜索改用下列公共服务；未填写时使用 photon.komoot.io（搜索）、nominatim.openstreetmap.org（地址）和 routing.openstreetmap.de（道路路线），发送搜索关键词或坐标。
+· 高德地图 SDK（北京高德图强科技有限公司）：随应用安装，但只有在您填写自己的高德 Android Key 并同意其隐私说明后才会初始化，用于显示高德官方地图、搜索地点、查询地址和规划路线，可能处理设备与系统信息、应用信息、网络信息、所查看的地图区域以及搜索关键词和坐标。本应用不启用其定位功能。清除 Key 后不再调用。高德隐私政策：https://lbs.amap.com/pages/privacy/
+· 不包含广告或统计服务。
 · 未同意使用须知前不会加载在线地图，也不会启动模拟服务。"""
 
 const val LICENSES = """osmdroid — Apache License 2.0
+高德地图 SDK — 高德软件许可（https://lbs.amap.com/pages/terms/）
 MapLibre Native — BSD 2-Clause License
 矢量瓦片 © OpenFreeMap © OpenMapTiles
 地图数据 © OpenStreetMap contributors — ODbL

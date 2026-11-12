@@ -6,15 +6,15 @@
 
 - 包名 `app.geoshift`，可从 2.x 覆盖安装，但 **3.0 不沿用 2.x 的数据**：升级前在 2.x「设置 → 导出备份」，升级后「导入备份」（兼容 2.x 备份）。
 - **框架要求变化**：3.0 是新版 Xposed API（libxposed API 101+）模块，需要支持新 API 的框架：**LSPosed 2.2 及以上**（[lsposed.zip](https://lsposed.zip)）或 **Vector**。LSPosed 1.x 只支持旧 API，**不再支持**。Root 方案 Magisk 或 KernelSU（KernelSU 需配合 Zygisk Next）均可。
-- **全部功能无需任何 Key**。高德 Web 服务 Key 是可选项，只用来提升国内搜索、地址和道路数据。2.5.0 起不再内置高德地图 SDK，也不再需要 Android Key（升级时会清除旧版保存的 Android Key）。
-- 地图图层（默认高德地图；地图右侧图层按钮或「设置 → 地图图层」切换，选择会保存，切换时保留中心和缩放。地图显示不出来时，搜索栏下方有可关闭的小提示，可一键换图层或填写高德 Key）：
+- **全部功能无需任何 Key**。3.1.0 起可选填写用户自己申请的高德 Android Key（「设置 → 高德 Key」有五步申请引导，包名和本安装包签名 SHA1 可一键复制）：填写后「高德地图」图层改用高德官方地图 SDK（矢量、可旋转倾斜、3D 楼块），搜索、地址和沿道路路线改用高德数据。高德 SDK 随应用安装，但只在填写 Key 并同意其隐私说明后初始化，不启用其定位功能；Key 无法鉴权或官方地图迟迟不加载时自动退回高德瓦片地图并提示原因。旧的高德 Web 服务 Key 仍可用（只影响搜索、地址和路线）。
+- 地图图层（默认高德地图；地图右侧图层按钮或「设置 → 地图图层」切换，选择会保存，切换时保留中心和缩放。地图显示不出来时，搜索栏下方有可关闭的小提示，可一键换图层或打开高德 Key 引导页）：
   - 默认地图：OpenStreetMap 瓦片（osmdroid），深色模式对瓦片反色。OSM 官方瓦片没有高清版，需要清晰显示时请用矢量地图。
   - 矢量地图：MapLibre Native + OpenFreeMap 矢量瓦片，文字清晰、可旋转倾斜，深色模式使用深色样式；地名优先显示中文（name:zh-Hans / name:zh）。路线画在文字下方，不遮挡路名。
   - 高德地图：在线道路瓦片，由 MapLibre 以「下一级瓦片按 128 dp 显示」的方式绘制（与高德网页版在高清屏上的做法相同），高分辨率屏上文字和道路清晰，可旋转；深色模式反色显示。标记、路线和相机转换为 GCJ-02 显示，点击选点转换回 WGS-84。
   - 全球卫星影像：Esri World Imagery（Esri、Maxar、Earthstar Geographics 及 GIS 用户社区），同样取下一级影像显示，清晰度约为普通瓦片的两倍；覆盖和分辨率因地区而异，不随深色模式反色。
   - 存储和模拟定位始终使用 WGS-84。
-- 地点搜索 / 地址显示：未填 Key 时用 Photon（搜索，按当前地图中心就近排序）和 Nominatim（地址，限速每秒 1 次），均为 OpenStreetMap 数据；填了高德 Web 服务 Key 时改用高德，坐标按 GCJ-02 ↔ WGS-84 换算。Key 只保存在应用私有存储，不进入备份或系统定位配置。
-- 沿道路路线：路线编辑时可选「直线 / 步行 / 骑行 / 驾车」。选道路方式后，相邻两个途经点之间按真实道路连接：填了高德 Web 服务 Key 时用高德路径规划，否则用 FOSSGIS 提供的公共 OSRM 服务（OpenStreetMap 数据）。保存的路线含完整道路折线（最多 10,000 点），播放时沿道路移动、不再联网；同时记录途经点和出行方式。
+- 地点搜索 / 地址显示：未填 Key 时用 Photon（搜索，按当前地图中心就近排序）和 Nominatim（地址，限速每秒 1 次），均为 OpenStreetMap 数据；填了高德 Android Key（官方 SDK）或 Web 服务 Key 时改用高德，坐标按 GCJ-02 ↔ WGS-84 换算。Key 只保存在应用私有存储，不进入导出的备份或系统定位配置。
+- 沿道路路线：路线编辑时可选「直线 / 步行 / 骑行 / 驾车」。选道路方式后，相邻两个途经点之间按真实道路连接：填了高德 Key 时用高德路径规划，否则用 FOSSGIS 提供的公共 OSRM 服务（OpenStreetMap 数据）。保存的路线含完整道路折线（最多 10,000 点），播放时沿道路移动、不再联网；同时记录途经点和出行方式。
 - 不包含：原版的许可证服务、Root 检测、"网络降级到 2G"（会改动手机真实网络）、广告和统计 SDK。
 
 ## 系统定位
@@ -66,7 +66,7 @@ geoshift/
 ```
 
 ```
-./build-release.sh              # 产出 ../releases/Geoshift-<版本>.apk（仅 64 位 ARM），用 ../signing 中的私钥签名（可用 PORTAL_KEYS 指定）
+./build-release.sh              # 产出 ../releases/Geoshift-<版本>.apk（仅 64 位 ARM，约 30 MB，其中高德地图 SDK 约 13 MB），用 ../signing 中的私钥签名（可用 PORTAL_KEYS 指定）
 EMULATOR=1 ./build-release.sh   # 额外打包 x86_64 原生库，产出 -emulator.apk，仅用于模拟器测试
 ```
 
@@ -86,7 +86,7 @@ app/src/main/java/app/geoshift/
   xposed/      模块入口 Module、Hook DSL、反射登记、配置读取、诊断；system/（system_server）、
                Processes.kt（电话服务 / 蓝牙）
   data/        Store（JSON 文件 + StateFlow）、Geoshift（全部业务操作与校验）、FrameworkBridge、
-               Backup（导入导出，兼容 2.x）、net/（高德、OSM 搜索与地址、道路路线、出口 IP）、DeviceScanner
+               Backup（导入导出，兼容 2.x）、net/（高德 Web 服务与官方 SDK、OSM 搜索与地址、道路路线、出口 IP）、DeviceScanner
   service/     SimulationService（模拟时钟 / 测试提供器）、JoystickService（悬浮摇杆）
   map/         MapSource
   ui/          GeoshiftApp（导航与标签栏）、AppViewModel、map/ mock/ history/ settings/ setup/、theme/、components/

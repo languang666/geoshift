@@ -87,7 +87,7 @@ fun SetupScreen(s: AppState, vm: AppViewModel, onOpen: (SystemTarget) -> Unit, o
                 Text(
                     "本应用是一款虚拟定位工具，用于开发者调试自己的应用和保护位置隐私。请仅在你有权测试的应用上使用，不得用于任何违法用途。\n\n" +
                         "· 位置、路线、预设和设置只保存在本机。\n" +
-                        "· 地图瓦片按您的选择向 OpenStreetMap、高德或 Esri 请求所查看的区域；地点搜索仅在你填写高德 Key 后使用。\n" +
+                        "· 地图瓦片按您的选择向 OpenStreetMap、高德或 Esri 请求所查看的区域；搜索与路线默认使用 OpenStreetMap 公共服务。内置的高德地图 SDK 只在你自行填写高德 Key 并同意后才启用。\n" +
                         "· 标准模拟模式由系统保留模拟定位标记；基站 / GNSS 配置不会修改真实无线网络。",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
