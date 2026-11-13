@@ -199,7 +199,7 @@ fun MockScreen(
                     val on = !s.settings.gnss
                     vm.run(if (on) "卫星模拟已开启" else "卫星模拟已关闭") { setGnss(on, s.settings.satellites) }
                 }
-                ToggleTile(Icons.Rounded.Radar, "记录环境", "保存基站和 Wi-Fi",
+                ToggleTile(Icons.Rounded.Radar, "记录环境", "保存定位、基站和 Wi-Fi",
                     false, Modifier.weight(1f), accentColor = palette.orange) {
                     captureName = "位置环境 " + formatTime(System.currentTimeMillis(), "MM-dd HH:mm")
                 }
@@ -264,11 +264,10 @@ fun MockScreen(
     }
     captureConfirm?.let { name ->
         ConfirmDialog("记录位置环境",
-            "将保存当前虚拟坐标与手机此刻实际扫描到的基站/Wi-Fi。扫描始终来自手机所在的真实位置；若虚拟坐标不是你当前所在地，记录会有偏差。继续？",
+            "将读取手机此刻的真实定位，并扫描周围的基站和 Wi-Fi，一起保存。以后载入这条环境时，位置、基站和 Wi-Fi 会一起生效、相互吻合。\n\n需要先停止模拟；室内获取定位最多约 15 秒。",
             onDismiss = { captureConfirm = null }) {
-            val p = r.position
-            vm.toast("扫描基站信息中...")
-            vm.run<String>("环境记录已保存，可在「收藏 · 环境」查看") { captureEnvironment(name, p) }
+            vm.toast("正在获取真实位置并扫描基站、Wi-Fi…")
+            vm.run<String>(onDone = vm::toast) { captureEnvironment(name) }
         }
     }
 }

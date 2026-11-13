@@ -457,19 +457,19 @@ class Geoshift private constructor(context: Context) {
 
     // ---- Environments -------------------------------------------------------------------------
 
-    @SuppressLint("MissingPermission")
-    fun captureEnvironment(name: String, p: LatLon): String {
-        Validate.coordinate(p)
-        val lm = app.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val device = runCatching { lm.getProviders(true).mapNotNull { lm.getLastKnownLocation(it) }.maxByOrNull { it.elapsedRealtimeNanos } }.getOrNull()
+    /**
+     * Records where the phone really is together with what it hears there: a fresh real position
+     * (GPS / fused / network) plus the cell and Wi-Fi scan. Loading the record later puts back all
+     * three, so location, cells and Wi-Fi agree. Simulation must be off, or none of it would be real.
+     */
+    fun captureEnvironment(name: String): String {
+        if (running) fail("请先停止模拟再记录环境：模拟中读到的定位、基站和 Wi-Fi 可能不是真实的。")
+        val here = deviceLocation()
         val cells = runCatching { scanner.cells() }.getOrDefault(emptyList())
         val wifi = runCatching { scanner.wifi() }.getOrDefault(emptyList())
-        val record = EnvironmentRecord(newId(), Validate.name(name), p, cells = cells, wifi = wifi,
-            deviceDistance = device?.let { Geo.distance(p, LatLon(it.latitude, it.longitude)) },
-            note = if (device == null) "没有系统定位结果，选定坐标不证明采集设备当时位于此处。" else "",
-            simulatedAtCapture = running)
+        val record = EnvironmentRecord(newId(), Validate.name(name), here, cells = cells, wifi = wifi, deviceDistance = 0.0)
         store.environments.put(record)
-        return record.id
+        return "环境已记录：真实位置 · 基站 ${cells.size} 个 · Wi-Fi ${wifi.size} 个，可在「收藏 · 环境」查看"
     }
 
     /** Loads the location, supported cells (registered first) and the first valid Wi-Fi of a record. */
@@ -485,7 +485,7 @@ class Geoshift private constructor(context: Context) {
                 wifiPresetId = "", environmentName = e.name)
         }
         store.log("环境配置已载入：${e.name}")
-        return "已载入坐标 · 基站 ${cells.size} 条 · Wi-Fi ${if (wifi != null) "已配置" else "缺失"}"
+        return "已载入采集时的位置 · 基站 ${cells.size} 条 · Wi-Fi ${if (wifi != null) "已配置" else "缺失"}"
     }
 
     // ---- Settings -----------------------------------------------------------------------------
