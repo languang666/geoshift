@@ -17,6 +17,8 @@ private class JsonFile<T>(dir: File, name: String, private val serializer: KSeri
     fun read(): T = try {
         if (!file.baseFile.exists()) default() else SimConfig.JSON.decodeFromString(serializer, String(file.readFully()))
     } catch (_: Throwable) {
+        // Unreadable: keep it aside (the next save would replace it) and start from the default.
+        runCatching { file.baseFile.copyTo(File(file.baseFile.path + ".unreadable"), overwrite = true) }
         default()
     }
 

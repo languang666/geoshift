@@ -171,6 +171,18 @@ class SimulationService : Service() {
         @Volatile private var running: SimulationService? = null
 
         fun start(c: Context) { c.startForegroundService(Intent(c, SimulationService::class.java)) }
+
+        /** A simulation is on but its service is not (the process was restarted): start it. */
+        fun ensure(c: Context) {
+            if (running == null && Geoshift.get(c).store.runtime.value.enabled) runCatching { start(c) }
+        }
+
+        /** Test providers a killed process left behind keep GPS frozen at their last fix: remove them. */
+        fun removeLeftoverProviders(c: Context) {
+            if (running != null) return
+            val m = c.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
+            for (name in PROVIDERS) runCatching { m.removeTestProvider(name) }
+        }
         fun stop(c: Context) { c.stopService(Intent(c, SimulationService::class.java)) }
         /** The position or state changed: report it now instead of at the next tick. */
         fun nudge() { MAIN.post { running?.emitNow() } }

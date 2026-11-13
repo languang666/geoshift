@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
         vm.foreground = true
         vm.engine.uiVisible = true
         // The service clock was slow in the background; bring the position up to date now.
+        app.geoshift.service.SimulationService.ensure(this)
         app.geoshift.service.SimulationService.nudge()
         vm.refresh()
     }

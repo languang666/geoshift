@@ -34,6 +34,7 @@ import app.geoshift.service.SimulationService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,11 +74,15 @@ class Geoshift private constructor(context: Context) {
 
     private val plans = HashMap<String, RoutePlan>()
 
+    /** Finishes before anything is written to the hooks (see [resumeAfterRestart]). */
+    private val resumed = scope.async { runCatching { resumeAfterRestart() } }
+
     init {
         bridge.onBind = { pushNow() }
         bridge.register()
         // Every change the hooks care about goes out as soon as it happens.
         scope.launch {
+            resumed.await()
             combine(store.settings, store.runtime) { s, r -> s to r }.conflate().collectLatest { (s, r) ->
                 try { bridge.push(simConfig(s, r), ::routePoints, joystick = r.joystick) }
                 catch (e: UserError) { store.log(e.message.orEmpty()) }
@@ -86,7 +91,37 @@ class Geoshift private constructor(context: Context) {
     }
 
     private fun pushNow() = scope.launch {
+        resumed.await()
         runCatching { bridge.push(simConfig(store.settings.value, store.runtime.value), ::routePoints, store.runtime.value.joystick) }
+    }
+
+    /**
+     * The app's process can be killed in the background while the simulation goes on: system_server
+     * keeps injecting (Xposed), and Android keeps a dead app's test providers (mock). A fresh process
+     * starts as "not simulating", so without this, merely reopening the app would switch a running
+     * Xposed simulation off, and a dead mock simulation would leave GPS frozen until a restart.
+     */
+    private fun resumeAfterRestart() {
+        val s = store.settings.value
+        if (!s.privacyAccepted || store.runtime.value.enabled) return
+        if (!s.xposed) { SimulationService.removeLeftoverProviders(app); return }
+        if (!bridge.ping()) return
+        val c = bridge.hookConfig ?: return
+        if (!c.active || !c.sameBoot(bridge.bootAt())) return
+        // A playing route whose points are gone cannot be shown or continued: let it stop.
+        val route = c.route
+        val saved = route?.let { a -> store.routes.items.value.firstOrNull { it.id == a.routeId } }
+        if (route != null && saved == null) return
+        store.updateRuntime { r ->
+            r.copy(enabled = true, paused = c.paused, mode = if (route != null) SimMode.ROUTE else SimMode.POINT,
+                position = c.position, bearing = c.bearing, anchor = route, noiseSeed = c.noiseSeed,
+                routeId = saved?.id ?: r.routeId, routeName = saved?.name ?: r.routeName, repeat = route?.repeat ?: r.repeat,
+                wifi = c.wifi ?: r.wifi, wifiEnabled = c.wifi != null,
+                cells = c.cells.ifEmpty { r.cells }, cellEnabled = c.cells.isNotEmpty())
+        }
+        store.log("应用重新启动，已接续仍在运行的模拟")
+        // From the background this may be refused; the main screen starts it when it next shows.
+        runCatching { SimulationService.start(app) }
     }
 
     // ---- Config for the hooks -----------------------------------------------------------------
@@ -216,7 +251,12 @@ class Geoshift private constructor(context: Context) {
 
     fun setLocation(p: LatLon) {
         Validate.coordinate(p)
-        store.updateRuntime { it.copy(position = p, error = "") }
+        // Choosing a point means point simulation from here: a selected route would otherwise start
+        // (and a playing one would pull the position back) the next time the simulation runs.
+        store.updateRuntime {
+            if (it.routeMode) it.copy(position = p, error = "", mode = SimMode.POINT, anchor = null, paused = false, speed = 0.0, progress = 0.0, routeIndex = 0)
+            else it.copy(position = p, error = "")
+        }
         if (running) SimulationService.nudge()
     }
 
@@ -480,7 +520,7 @@ class Geoshift private constructor(context: Context) {
         val cells = e.cells.mapNotNull { it.toSpec() }.take(Validate.MAX_CELLS)
         val wifi = e.wifi.firstOrNull { runCatching { Validate.wifi(it.ssid, it.bssid) }.isSuccess }
         store.updateRuntime {
-            it.copy(position = e.position, cells = cells, cellEnabled = cells.isNotEmpty(), cellPresetId = "",
+            it.copy(position = e.position, mode = SimMode.POINT, cells = cells, cellEnabled = cells.isNotEmpty(), cellPresetId = "",
                 wifi = wifi?.let { w -> WifiSpec(w.ssid, w.bssid.lowercase(), w.rssi, w.frequency) }, wifiEnabled = wifi != null,
                 wifiPresetId = "", environmentName = e.name)
         }
@@ -539,7 +579,6 @@ class Geoshift private constructor(context: Context) {
         return amap.search(q, near).ifEmpty { runCatching { OpenGeocoder.search(q, near) }.getOrDefault(emptyList()) }
     }
 
-    /** Address text for a point; never throws (it is looked up automatically as the position changes). */
     /** Addresses already looked up, per ~1 m cell: the selected point and the simulated one share them. */
     private val addressCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>) = size > 200
@@ -549,7 +588,8 @@ class Geoshift private constructor(context: Context) {
 
     /**
      * Address of [p]: cached when known, else looked up (AMap with a key, else OpenStreetMap), retried
-     * twice because the free service often times out or rate-limits. "" when nothing could be found.
+     * twice because the free service often times out or rate-limits. "" when nothing could be found;
+     * never throws (it is looked up automatically as the position changes).
      */
     fun reverseGeocode(p: LatLon): String {
         if (!store.settings.value.privacyAccepted) return ""
@@ -583,7 +623,7 @@ class Geoshift private constructor(context: Context) {
         return "高德 Key 验证通过，官方地图、搜索、地址和路线可用"
     }
 
-    private var keyCheck: Pair<String, String?>? = null
+    @Volatile private var keyCheck: Pair<String, String?>? = null
 
     /**
      * Why the saved AMap Android key cannot be used (it does not authenticate), or null when it works
@@ -654,7 +694,10 @@ class Geoshift private constructor(context: Context) {
             }
             out.toByteArray()
         } ?: fail("无法读取文件。")
-        return Backup.import(store, String(bytes))
+        val count = Backup.import(store, String(bytes))
+        // An imported route can replace one with the same id: its cached plan is stale.
+        if (!running) synchronized(plans) { plans.clear() }
+        return count
     }
 
     companion object {
