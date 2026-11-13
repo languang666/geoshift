@@ -175,28 +175,42 @@ class Geoshift private constructor(context: Context) {
         LatLon(best.latitude, best.longitude).takeIf { it.valid }?.let { _realPosition.value = it }
     }
 
-    /** Real GPS fix (simulation must be off). Blocks up to 20 s. */
+    /**
+     * Real position (simulation must be off). Listens to GPS, network and fused providers at once and
+     * takes the first fresh non-mock fix; indoors, where GPS rarely locks, network/fused answer in a
+     * few seconds. If nothing fresh arrives within 15 s, falls back to a recent (≤ 2 min) last fix.
+     */
     @SuppressLint("MissingPermission")
     fun deviceLocation(): LatLon {
         if (!capabilities().preciseLocation) fail("请先授予精确位置权限。")
         if (running) fail("请先停止模拟，再获取原始位置。")
         val lm = app.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) fail("请先打开系统定位。")
+        val providers = buildList {
+            add(LocationManager.GPS_PROVIDER)
+            if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
+            add(LocationManager.NETWORK_PROVIDER)
+        }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        if (providers.isEmpty()) fail("请先打开系统定位。")
         val start = SystemClock.elapsedRealtimeNanos()
         val latch = CountDownLatch(1)
         val result = AtomicReference<android.location.Location?>()
         val listener = LocationListener { fix ->
-            if (fix.elapsedRealtimeNanos >= start && !fix.mockFlag) { result.set(fix); latch.countDown() }
+            if (fix.elapsedRealtimeNanos >= start && !fix.mockFlag && result.compareAndSet(null, fix)) latch.countDown()
         }
         try {
-            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, listener, Looper.getMainLooper())
-            latch.await(20, TimeUnit.SECONDS)
+            for (p in providers) runCatching { lm.requestLocationUpdates(p, 0L, 0f, listener, Looper.getMainLooper()) }
+                .onFailure { if (it is SecurityException) throw it }
+            latch.await(15, TimeUnit.SECONDS)
         } catch (_: SecurityException) {
             fail("位置权限已撤销，请重新授予精确位置权限。")
         } finally {
             runCatching { lm.removeUpdates(listener) }
         }
-        val fix = result.get() ?: fail("暂未获取新的 GPS 位置，请到室外后重试。")
+        val fix = result.get() ?: providers
+            .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+            .filter { !it.mockFlag && start - it.elapsedRealtimeNanos < TimeUnit.MINUTES.toNanos(2) }
+            .maxByOrNull { it.elapsedRealtimeNanos }
+            ?: fail("暂时获取不到位置：请确认系统定位已开启（建议打开 WLAN 扫描提升室内定位），或到窗边 / 室外重试。")
         return LatLon(fix.latitude, fix.longitude).also { _realPosition.value = it }
     }
 
