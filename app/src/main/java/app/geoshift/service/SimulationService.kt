@@ -19,6 +19,7 @@ import app.geoshift.core.FixBuilder
 import app.geoshift.core.toLocation
 import app.geoshift.data.Backend
 import app.geoshift.data.Geoshift
+import app.geoshift.data.positionName
 
 /**
  * Foreground owner of a running simulation. With the Android mock backend it feeds the test
@@ -31,7 +32,7 @@ class SimulationService : Service() {
     private lateinit var engine: Geoshift
     private var manager: LocationManager? = null
     private var providers = false
-    private var shownPaused: Boolean? = null
+    private var shownText: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -117,10 +118,15 @@ class SimulationService : Service() {
             engine.advanceRoute()
             val s = engine.store.settings.value
             val now = engine.store.runtime.value
-            if (shownPaused != now.paused) {
-                shownPaused = now.paused
-                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID,
-                    notification(if (now.paused) "路线已暂停；保持当前位置" else "位置模拟运行中，可随时停止"))
+            val name = positionName(now, engine.store.places.items.value, engine.store.environments.items.value)
+            val text = when {
+                now.paused -> "路线已暂停；保持当前位置"
+                name.isNotEmpty() -> "正在模拟：$name"
+                else -> "位置模拟运行中，可随时停止"
+            }
+            if (shownText != text) {
+                shownText = text
+                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, notification(text))
             }
             if (providers) {
                 emit()

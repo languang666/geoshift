@@ -202,6 +202,23 @@ data class EnvironmentRecord(
     val simulatedAtCapture: Boolean = false,
 ) : Record
 
+/** How close (metres) the simulated position must be to a saved place to carry its name. */
+const val NAMED_PLACE_RADIUS = 20.0
+
+/**
+ * Name of the saved place (or environment record) the simulated position sits on, or "" — so a
+ * favourite being simulated shows as "公司" rather than bare coordinates. Not during route playback.
+ */
+fun positionName(r: Runtime, places: List<SavedPlace>, environments: List<EnvironmentRecord>): String {
+    if (r.routeMode) return ""
+    val p = r.position
+    places.filter { app.geoshift.core.Geo.distance(p, it.position) <= NAMED_PLACE_RADIUS }
+        .minByOrNull { app.geoshift.core.Geo.distance(p, it.position) }?.let { return it.name }
+    environments.filter { app.geoshift.core.Geo.distance(p, it.position) <= NAMED_PLACE_RADIUS }
+        .minByOrNull { app.geoshift.core.Geo.distance(p, it.position) }?.let { return it.name }
+    return ""
+}
+
 @Serializable
 data class LogEntry(val time: Long, val message: String)
 

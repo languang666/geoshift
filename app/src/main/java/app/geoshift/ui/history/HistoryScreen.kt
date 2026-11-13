@@ -281,8 +281,8 @@ fun HistoryScreen(
                         SheetAction(Icons.Rounded.PlayArrow, "立即模拟此位置") {
                             close(); vm.run("模拟定位已开启") { startPoint(p) }; onShowOnMap(p)
                         }
-                        SheetAction(Icons.Rounded.Map, "设为虚拟位置并在地图查看") {
-                            close(); vm.run("已设置为当前虚拟位置") { setLocation(p) }; onShowOnMap(p)
+                        SheetAction(Icons.Rounded.Map, "设为模拟位置并在地图查看") {
+                            close(); vm.run("已设为模拟位置") { setLocation(p) }; onShowOnMap(p)
                         }
                         SheetAction(Icons.Rounded.Edit, "重命名") { close(); rename = row }
                     }

@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -761,8 +762,18 @@ private fun StatusCard(s: AppState, onToggle: () -> Unit, onPause: () -> Unit, o
                     )
                 }
                 Spacer(Modifier.size(4.dp))
-                CoordinateRow(r.position.lat, r.position.lon, style = MaterialTheme.typography.titleMedium, onCopied = onCopyCoord)
-                Text(
+                val name = s.positionName
+                if (name.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Bookmark, null, Modifier.size(18.dp), tint = if (r.enabled) live else MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(4.dp))
+                        Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                CoordinateRow(r.position.lat, r.position.lon,
+                    style = if (name.isNotEmpty()) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium, onCopied = onCopyCoord)
+                if (name.isEmpty() || r.routeMode) Text(
                     when {
                         r.enabled && r.routeMode -> String.format(java.util.Locale.ROOT, "%s · %.0f km/h · %d%%",
                             r.routeName.ifEmpty { "未命名路线" }, r.speed * 3.6, (r.progress * 100).toInt())

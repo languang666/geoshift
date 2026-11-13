@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.CellTower
 import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material.icons.rounded.LocationOn
@@ -173,7 +174,7 @@ fun MockScreen(
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToggleTile(Icons.Rounded.LocationOn, "单点定位",
-                    if (r.enabled && !r.routeMode) "固定在虚拟位置" else "点击开启", r.enabled && !r.routeMode, Modifier.weight(1f),
+                    if (r.enabled && !r.routeMode) "固定在模拟位置" else "点击开启", r.enabled && !r.routeMode, Modifier.weight(1f),
                     accentColor = palette.blue) {
                     if (r.enabled && !r.routeMode) vm.run("模拟定位已关闭") { stop() } else vm.run("模拟定位已开启") { startPoint() }
                 }
@@ -304,7 +305,15 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
             )
         }
         Spacer(Modifier.size(14.dp))
-        Text("虚拟位置", style = MaterialTheme.typography.labelMedium, color = sub)
+        Text("模拟位置", style = MaterialTheme.typography.labelMedium, color = sub)
+        if (s.positionName.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Bookmark, null, Modifier.size(20.dp), tint = fg)
+                Spacer(Modifier.width(6.dp))
+                Text(s.positionName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = fg,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
         CoordinateRow(
             lat = r.position.lat,
             lon = r.position.lon,
@@ -312,7 +321,7 @@ private fun StatusHero(s: AppState, address: String, onToggle: () -> Unit, onPau
             color = fg,
             onCopied = onCopyCoord,
         )
-        if (address.isNotEmpty() && (!on || !r.routeMode)) {
+        if (address.isNotEmpty() && address != s.positionName && (!on || !r.routeMode)) {
             Spacer(Modifier.size(2.dp))
             Text(address, style = MaterialTheme.typography.bodySmall, color = sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }

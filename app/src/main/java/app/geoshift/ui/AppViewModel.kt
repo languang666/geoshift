@@ -52,6 +52,9 @@ data class AppState(
 
     /** Length of the selected route in metres (cached on the record). */
     val currentRouteLength: Double get() = currentRouteRecord?.length ?: 0.0
+
+    /** Name of the favourite (or environment) at the simulated position, or "". */
+    val positionName: String by lazy { app.geoshift.data.positionName(runtime, places, environments) }
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
