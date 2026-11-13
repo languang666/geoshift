@@ -239,7 +239,19 @@ fun MapScreen(
     val editAnchors = if (road) waypoints else emptyList()
     val editLength = remember(editRoute) { Geo.routeLength(editRoute) }
 
-    // Reverse-geocode the selected point when a map key is configured.
+    // Address of the simulated position for the status card (not while following a route; the short
+    // delay lets joystick moves settle before looking anything up).
+    var simAddress by remember { mutableStateOf("") }
+    LaunchedEffect(r.position, r.routeMode, s.settings.privacyAccepted) {
+        if (r.routeMode || !s.settings.privacyAccepted) { simAddress = ""; return@LaunchedEffect }
+        val p = r.position
+        if (selected != null && selected == p && address.isNotEmpty()) { simAddress = address; return@LaunchedEffect }
+        simAddress = ""
+        delay(500)
+        vm.run<String>(onDone = { if (vm.state.value?.runtime?.position == p) simAddress = it }) { reverseGeocode(p) }
+    }
+
+    // Reverse-geocode the selected point.
     LaunchedEffect(selected, s.settings.privacyAccepted) {
         val generation = ++addressGeneration
         val p = selected ?: return@LaunchedEffect
@@ -267,7 +279,7 @@ fun MapScreen(
             onTap = { p -> if (editing) draft.add(p) else select(p) },
             onLongPress = { p -> if (!editing) select(p) },
             onFailure = { message -> sdkFailed = true; vm.toast("$message，已改用高德瓦片地图") },
-            onSlow = { sdkFailed = true; vm.toast("高德官方地图迟迟没有加载，已暂时改用瓦片地图。可检查网络，或到「设置 → 高德 Key」点「验证 Key」") },
+            onSlow = { vm.toast("高德官方地图加载较慢，请检查网络；仍是空白可在图层菜单换个图层，或到「设置 → 高德 Key」点「验证 Key」") },
         ) else if (vectorMap) VectorMap(
             modifier = Modifier.fillMaxSize(), virtual = r.position, simulating = r.enabled, real = realPosition,
             selected = if (editing) null else selected, route = if (editing) editRoute else currentRoute,
@@ -512,7 +524,7 @@ fun MapScreen(
                     onSave = { saveDialog = address },
                     onCopyCoord = { vm.toast("位置坐标已复制到剪贴板") },
                 )
-                else -> StatusCard(s, onToggle = {
+                else -> StatusCard(s, simAddress, onToggle = {
                     if (r.enabled) vm.run("模拟定位已关闭") { stop() }
                     else vm.run("模拟定位已开启") { if (r.routeMode && currentRoute.size >= 2) startRoute() else startPoint() }
                 }, onPause = { vm.run(if (r.routeFinished) "路线重新开始" else if (r.paused) "路线模拟继续" else "路线模拟已暂停") { pauseRoute(!r.paused) } },
@@ -731,7 +743,7 @@ private fun BottomCard(content: @Composable () -> Unit) {
 
 /** Idle / running panel: state and position on the left, one round start-stop button on the right. */
 @Composable
-private fun StatusCard(s: AppState, onToggle: () -> Unit, onPause: () -> Unit, onOpenSetup: () -> Unit, onCopyCoord: () -> Unit) {
+private fun StatusCard(s: AppState, address: String, onToggle: () -> Unit, onPause: () -> Unit, onOpenSetup: () -> Unit, onCopyCoord: () -> Unit) {
     val r = s.runtime
     val haptic = LocalHapticFeedback.current
     val ready = s.settings.privacyAccepted && s.caps.preciseLocation &&
@@ -773,10 +785,11 @@ private fun StatusCard(s: AppState, onToggle: () -> Unit, onPause: () -> Unit, o
                 }
                 CoordinateRow(r.position.lat, r.position.lon,
                     style = if (name.isNotEmpty()) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium, onCopied = onCopyCoord)
-                if (name.isEmpty() || r.routeMode) Text(
+                if (name.isEmpty() || r.routeMode || (address.isNotEmpty() && address != name)) Text(
                     when {
                         r.enabled && r.routeMode -> String.format(java.util.Locale.ROOT, "%s · %.0f km/h · %d%%",
                             r.routeName.ifEmpty { "未命名路线" }, r.speed * 3.6, (r.progress * 100).toInt())
+                        address.isNotEmpty() -> address
                         r.enabled -> "所有定位来源都在这个点"
                         else -> "点地图选点，或直接在此处开始"
                     },

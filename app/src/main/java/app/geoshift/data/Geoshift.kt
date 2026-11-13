@@ -540,8 +540,32 @@ class Geoshift private constructor(context: Context) {
     }
 
     /** Address text for a point; never throws (it is looked up automatically as the position changes). */
+    /** Addresses already looked up, per ~1 m cell: the selected point and the simulated one share them. */
+    private val addressCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>) = size > 200
+    }
+
+    private fun addressKey(p: LatLon) = String.format(Locale.ROOT, "%.5f,%.5f", p.lat, p.lon)
+
+    /**
+     * Address of [p]: cached when known, else looked up (AMap with a key, else OpenStreetMap), retried
+     * twice because the free service often times out or rate-limits. "" when nothing could be found.
+     */
     fun reverseGeocode(p: LatLon): String {
         if (!store.settings.value.privacyAccepted) return ""
+        val key = addressKey(p)
+        synchronized(addressCache) { addressCache[key] }?.let { return it }
+        var result = ""
+        for (attempt in 0 until 3) {
+            if (attempt > 0) Thread.sleep(1500L * attempt)
+            result = lookupAddress(p)
+            if (result.isNotEmpty()) break
+        }
+        if (result.isNotEmpty()) synchronized(addressCache) { addressCache[key] = result }
+        return result
+    }
+
+    private fun lookupAddress(p: LatLon): String {
         if (!amap.ready) return runCatching { OpenGeocoder.reverse(p) }.getOrDefault("")
         return try {
             amap.reverse(p).ifBlank { runCatching { OpenGeocoder.reverse(p) }.getOrDefault("") }
@@ -573,13 +597,17 @@ class Geoshift private constructor(context: Context) {
             amapSdk.reverse(LatLon(39.9042, 116.4074))
             null
         } catch (e: AmapSdk.AmapError) {
-            if (e.code.toIntOrNull() in 1001..1013) e.message else return null
+            // Only answers that mean "this key will never work here"; quota (1004), rate limits
+            // (1005/1010) and missing search permissions (1003/1012) do not affect the map itself.
+            if (e.code.toIntOrNull() in KEY_REJECTED) e.message else return null
         } catch (_: Exception) {
             return null
         }
         keyCheck = key to problem
         return problem
     }
+
+    private val KEY_REJECTED = setOf(1001, 1002, 1008, 1009, 1013)
 
     /** Saves the AMap Android key; saving is also consent to the AMap SDK privacy terms. */
     fun setSdkKey(key: String) {

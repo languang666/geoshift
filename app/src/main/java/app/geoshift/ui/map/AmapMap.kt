@@ -76,7 +76,7 @@ fun AmapMap(
                 map.setOnMapClickListener { tap.value(it.stored()) }
                 map.setOnMapLongClickListener { longPress.value(it.stored()) }
                 map.setOnPOIClickListener { tap.value(it.coordinate.stored()) }
-                map.setOnMapLoadedListener { onMapReady() }
+                map.setOnMapLoadedListener { onMapReady(); markLoaded() }
             }
         }.onFailure { runCatching { created?.onDestroy() } }
     }
@@ -107,8 +107,13 @@ fun AmapMap(
         }
     }
     LaunchedEffect(layers) {
-        // A view that never draws map data usually means the key does not authenticate.
-        delay(12_000)
+        // Only a hint: the key itself is checked separately, and a slow network is no reason to
+        // take the official map away (time spent in the background does not count).
+        var waited = 0
+        while (waited < 20_000 && !layers.dataLoaded) {
+            delay(500)
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) waited += 500
+        }
         if (!layers.dataLoaded) onSlow()
     }
     LaunchedEffect(center, layers) {
@@ -153,6 +158,9 @@ private class NativeLayers(
     private var ready = false
     @Volatile var dataLoaded = false
         private set
+
+    /** The map finished its first load (cached data may never pass the tile callback). */
+    fun markLoaded() { dataLoaded = true }
     private var lastRoute: List<LatLon> = emptyList()
     private var lastEditing = false
     private var lastAnchors: List<LatLon> = emptyList()
