@@ -198,16 +198,16 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
 <main id="top">
 <div class="hero">
   <div class="wrap">
-    <a class="eyebrow js-notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener"><b class="js-ver">v3.5.14</b>新版本已发布，查看更新说明 →</a>
+    <a class="eyebrow js-notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener"><b class="js-ver">v3.6.0</b>新版本已发布，查看更新说明 →</a>
     <h1>系统级虚拟定位，<br>不碰你的应用</h1>
     <p class="lead">Geoshift 是 Android 上的 Xposed 模块。定位、卫星、Wi-Fi、基站和蓝牙在系统侧一起替换，不往任何应用里注入代码，全部功能无需任何 Key。</p>
     <div class="cta" id="download">
-      <a class="btn lg primary js-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.14/Geoshift-3.5.14.apk" rel="noopener">
+      <a class="btn lg primary js-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.6.0/Geoshift-3.6.0.apk" rel="noopener">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8.5M4.5 7 8 10.5 11.5 7M2.5 13.5h11"/></svg>国内加速下载</a>
-      <a class="btn lg js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.14/Geoshift-3.5.14.apk" rel="noopener">GitHub 直连下载</a>
+      <a class="btn lg js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.6.0/Geoshift-3.6.0.apk" rel="noopener">GitHub 直连下载</a>
     </div>
     <div class="dlmeta">
-      <span><span class="js-ver">v3.5.14</span> · <span class="js-meta">28.8 MB · 2026-11-24</span> · arm64 · Android 8.0+</span>
+      <span><span class="js-ver">v3.6.0</span> · <span class="js-meta">28.8 MB · 2026-11-25</span> · arm64 · Android 8.0+</span>
       <label>加速线路
         <select class="js-proxy" aria-label="加速线路">
           <option value="https://ghfast.top/">ghfast.top</option>
@@ -301,7 +301,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
         <h3><i class="dot w"></i>无法伪装</h3>
         <div class="row"><b>公网 IP</b><span>需要对应地区的代理 / VPN；「系统诊断」里有出口 IP 校验</span></div>
         <div class="row"><b>运营商代码</b><span>来自 SIM 卡的系统属性</span></div>
-        <div class="row"><b>传感器</b><span>主模块保持零注入，不改写加速度计、陀螺仪和计步。静止打卡请用静止模拟；如需步行/跑步步频联动，可另装独立的 GeoshiftMotion 配套模块（<a class="js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoshiftMotion-1.0.3.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">国内加速</a> / <a class="js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoshiftMotion-1.0.3.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">GitHub 直连</a>）</span></div>
+        <div class="row"><b>传感器</b><span>主模块保持零注入，不改写加速度计、陀螺仪和计步。静止打卡请用静止模拟；如需步行/跑步步频联动，可另装独立的 GeoshiftMotion 配套模块（<a class="js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoshiftMotion-1.1.0.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">国内加速</a> / <a class="js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoshiftMotion-1.1.0.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">GitHub 直连</a>）</span></div>
       </div>
     </div>
   </div>
@@ -317,8 +317,8 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
       <details><summary>从 2.x 升级要注意什么？</summary><p>3.0 起不沿用 2.x 的数据。升级前在 2.x「设置 → 导出备份」，装好新版后「设置 → 导入备份」。框架也要换成 LSPosed 2.2+ 或 Vector。</p></details>
       <details><summary>一定要填高德 Key 吗？</summary><p>不用。不填时地图、搜索、地址和道路路线使用 OpenStreetMap 体系的公共服务。填了自己申请的高德 Android Key 后，「高德地图」图层改用官方 SDK，搜索和路线也走高德；App 里「设置 → 高德 Key」有分步申请引导。</p></details>
       <details><summary>只想让某几个应用拿到模拟位置？</summary><p>在「设置 → 模拟范围」改为「仅选中的应用」，其他应用（如导航）继续拿到真实数据。使用谷歌融合定位的应用要同时选中「Google Play 服务」。</p></details>
-      <details><summary>走路 / 跑步时如何模拟步频？</summary><p>为了保住主模块的「系统侧零注入」隐蔽性，步频模拟拆成了独立的可选配套模块 <b>GeoshiftMotion</b>（约 37 KB，无桌面图标）。安装后在 LSPosed 2.2+ / Vector 里启用并<b>只勾选需要步频的目标应用</b>，即可自动跟随 Geoshift 的实时模拟速度合成步数、步频与三轴步态加速度（遇红灯/暂停自动停步，骑行/驾车/飞行不计步）。下载 GeoshiftMotion：<a class="js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoshiftMotion-1.0.3.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">国内加速</a> · <a class="js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoshiftMotion-1.0.3.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">GitHub 直连</a></p></details>
-      <details><summary>GeoProbe 是什么？</summary><p>独立的探针应用，以普通应用身份读取全部定位线索并显示是否为模拟值，用来验证模块在你的手机上是否完整生效。<a class="js-probe" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoProbe.apk" style="color:var(--fog);text-decoration:underline;text-underline-offset:3px">下载 GeoProbe</a></p></details>
+      <details><summary>走路 / 跑步时如何模拟步频？</summary><p>为了保住主模块的「系统侧零注入」隐蔽性，步频模拟拆成了独立的可选配套模块 <b>GeoshiftMotion</b>（约 41 KB，无桌面图标）。安装后在 LSPosed 2.2+ / Vector 里启用并<b>只勾选需要步频的目标应用</b>，即可自动跟随 Geoshift 的实时模拟速度合成步数、步频与三轴步态加速度（遇红灯/暂停自动停步，骑行/驾车/飞行不计步）。下载 GeoshiftMotion：<a class="js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoshiftMotion-1.1.0.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">国内加速</a> · <a class="js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoshiftMotion-1.1.0.apk" rel="noopener" style="color:var(--periwinkle);text-decoration:underline;text-underline-offset:3px">GitHub 直连</a></p></details>
+      <details><summary>GeoProbe 是什么？</summary><p>独立的探针应用，以普通应用身份读取全部定位线索并显示是否为模拟值，用来验证模块在你的手机上是否完整生效。<a class="js-probe" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoProbe.apk" style="color:var(--fog);text-decoration:underline;text-underline-offset:3px">下载 GeoProbe</a></p></details>
       <details><summary>支持 32 位手机吗？</summary><p>当前版本只打包 64 位 ARM（arm64-v8a）。32 位设备可在<a href="https://github.com/languang666/geoshift/releases" rel="noopener" style="color:var(--fog);text-decoration:underline;text-underline-offset:3px">历史版本</a>里找 3.0.5。</p></details>
     </div>
   </div>
@@ -332,22 +332,22 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
     <div class="dl-list">
       <div class="dl-item featured">
         <div>
-          <b>Geoshift <span class="tag"><span class="js-ver">v3.5.14</span></span></b>
-          <small><span class="js-meta">28.8 MB · 2026-11-24</span> · arm64 · Android 8.0+ · LSPosed 2.2+ / Vector</small>
+          <b>Geoshift <span class="tag"><span class="js-ver">v3.6.0</span></span></b>
+          <small><span class="js-meta">28.8 MB · 2026-11-25</span> · arm64 · Android 8.0+ · LSPosed 2.2+ / Vector</small>
         </div>
         <div class="actions">
-          <a class="btn sm primary js-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.14/Geoshift-3.5.14.apk" rel="noopener">国内加速</a>
-          <a class="btn sm js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.14/Geoshift-3.5.14.apk" rel="noopener">GitHub 直连</a>
+          <a class="btn sm primary js-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.6.0/Geoshift-3.6.0.apk" rel="noopener">国内加速</a>
+          <a class="btn sm js-gh" href="https://github.com/languang666/geoshift/releases/download/v3.6.0/Geoshift-3.6.0.apk" rel="noopener">GitHub 直连</a>
         </div>
       </div>
       <div class="dl-item">
         <div>
-          <b>GeoshiftMotion <span class="tag">v1.0.3 · 步频联动</span></b>
-          <small>37 KB · 无桌面图标 · 在框架中仅勾选需要步频的目标应用（含小米系统步数库适配）</small>
+          <b>GeoshiftMotion <span class="tag">v1.1.0 · 步频联动</span></b>
+          <small>41 KB · 无桌面图标 · 在框架中仅勾选需要步频的目标应用（含小米系统步数库适配）</small>
         </div>
         <div class="actions">
-          <a class="btn sm js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoshiftMotion-1.0.3.apk" rel="noopener">国内加速</a>
-          <a class="btn sm js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoshiftMotion-1.0.3.apk" rel="noopener">GitHub 直连</a>
+          <a class="btn sm js-motion-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoshiftMotion-1.1.0.apk" rel="noopener">国内加速</a>
+          <a class="btn sm js-motion-gh" href="https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoshiftMotion-1.1.0.apk" rel="noopener">GitHub 直连</a>
         </div>
       </div>
       <div class="dl-item">
@@ -356,8 +356,8 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
           <small>5.6 MB · 以普通应用身份读取全部定位线索，验证模块是否完整生效</small>
         </div>
         <div class="actions">
-          <a class="btn sm js-probe-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoProbe.apk" rel="noopener">国内加速</a>
-          <a class="btn sm js-probe-gh" href="https://github.com/languang666/geoshift/releases/download/v3.5.14/GeoProbe.apk" rel="noopener">GitHub 直连</a>
+          <a class="btn sm js-probe-cn" href="https://ghfast.top/https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoProbe.apk" rel="noopener">国内加速</a>
+          <a class="btn sm js-probe-gh" href="https://github.com/languang666/geoshift/releases/download/v3.6.0/GeoProbe.apk" rel="noopener">GitHub 直连</a>
         </div>
       </div>
     </div>
@@ -372,7 +372,7 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
       <a class="js-notes" href="https://github.com/languang666/geoshift/releases/latest" rel="noopener">更新说明</a>
       <a href="https://github.com/languang666/geoshift/releases" rel="noopener">历史版本</a>
     </div>
-    <div class="sha js-sha-box"><span>Geoshift SHA-256</span><code class="js-sha">79e3bf2c0982e08352af76eb64857d0abc7c4aa8717a2f6f51209e3d1ca6b721</code><button class="btn sm" id="copySha" type="button">复制</button></div>
+    <div class="sha js-sha-box"><span>Geoshift SHA-256</span><code class="js-sha">b5a0d48e81cea133f4b7634e1817e53f956cf66be322e737902ad2ce095da75d</code><button class="btn sm" id="copySha" type="button">复制</button></div>
   </div>
 </section>
 </main>
@@ -389,10 +389,10 @@ footer a{color:var(--fog)} footer a:hover{color:var(--ink)}
 (function(){
   var REPO = "languang666/geoshift";
   var state = {
-    tag: "v3.5.14",
-    apk: "https://github.com/" + REPO + "/releases/download/v3.5.14/Geoshift-3.5.14.apk",
-    motion: "https://github.com/" + REPO + "/releases/download/v3.5.14/GeoshiftMotion-1.0.3.apk",
-    probe: "https://github.com/" + REPO + "/releases/download/v3.5.14/GeoProbe.apk"
+    tag: "v3.6.0",
+    apk: "https://github.com/" + REPO + "/releases/download/v3.6.0/Geoshift-3.6.0.apk",
+    motion: "https://github.com/" + REPO + "/releases/download/v3.6.0/GeoshiftMotion-1.1.0.apk",
+    probe: "https://github.com/" + REPO + "/releases/download/v3.6.0/GeoProbe.apk"
   };
   function all(sel){ return [].slice.call(document.querySelectorAll(sel)); }
   function set(sel, fn){ all(sel).forEach(fn); }
